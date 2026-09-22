@@ -17,6 +17,15 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Presupuesto**, **anti-loop**, **meta-review**, **resume** y **self-test** offline.
 - Solo el **orquestador commitea**.
 
+## Documentación
+
+- [`AGENTS.md`](./AGENTS.md) — orientación para agentes de IA (empezá acá).
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — diseño interno del driver.
+- [`docs/HANDOFF.md`](./docs/HANDOFF.md) — estado actual y próximos pasos.
+- [`docs/DOWNSTREAM-PAISANITOS.md`](./docs/DOWNSTREAM-PAISANITOS.md) — patrón de proyecto consumidor.
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — limitaciones e ideas v3.
+- [`SECURITY.md`](./SECURITY.md) — política de secretos.
+
 ## Instalación
 
 ```bash
