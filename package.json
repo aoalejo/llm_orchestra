@@ -1,5 +1,5 @@
 {
-  "name": "@paisanitos/pi-orchestra",
+  "name": "llm-orchestra",
   "version": "0.2.0",
   "description": "Lean Orchestrator: Ralph loop multi-modelo con verificación adversa, worktrees y rotación de cuentas, para pi.",
   "type": "module",
@@ -8,6 +8,7 @@
   },
   "keywords": ["pi-package", "orchestrator", "multi-agent", "ralph-loop"],
   "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/aoalejo/llm_orchestra.git" },
   "files": [
     "orchestra.mjs",
     "agents",
@@ -15,6 +16,7 @@
     "templates",
     "extensions",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {

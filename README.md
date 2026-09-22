@@ -20,11 +20,13 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 ## Instalación
 
 ```bash
-# Desde ruta local (desarrollo)
-pi install F:/Proyectos/orchestra
+# Desde GitHub (recomendado)
+pi install git:git@github.com:aoalejo/llm_orchestra@v0.2.0
+# o
+pi install https://github.com/aoalejo/llm_orchestra
 
-# Cuando esté en un repo git
-pi install git:github.com/<usuario>/<repo>@v0.2.0
+# Desde ruta local (desarrollo)
+pi install /ruta/a/llm_orchestra
 ```
 
 Esto registra el paquete a nivel global (`~/.pi/agent/settings.json`) y expone:
@@ -87,7 +89,8 @@ así que nunca se mezclan: el orquestador conserva la cuenta A aunque B se agote
 
 - Los subagentes ejecutan `pi` con acceso a bash: tratá los agentes como código ejecutable.
 - Las rutas en `protectedPaths` requieren `--yes` (aprobación humana) para commitear.
-- No se commitean secretos: `.orchestra/.env` está ignorado.
+- **Este repo es público: nunca commitear credenciales.** Las keys van en `.orchestra/.env` del proyecto consumidor (ignorado por `.gitignore`). El archivo `templates/env.example` sólo tiene claves vacías.
+- Si una key se filtra, rotala en el proveedor y purgá el historial (`git filter-repo`).
 
 ## Licencia
 
