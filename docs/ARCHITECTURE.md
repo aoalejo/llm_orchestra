@@ -98,10 +98,11 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **27 casos**):
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **35 casos**):
 `extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
 `workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
-`budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`.
+`budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`,
+`matchModel`, `rankModels`, `configPatchFromRanking`.
 **Si agregás lógica pura, agregá su caso.** El self-test ya cazó bugs reales
 (`extractLastJson` tomaba objetos anidados).
 
@@ -113,7 +114,31 @@ salteando gates y diff reales: sirve para validar el pipeline sin red ni keys en
 `extensions/orchestra.ts` registra el comando `/orchestra` que invoca el driver con
 `process.execPath` y `stdio: inherit`. Los args se pasan tal cual (`init`, `--plan`, …).
 
-## 10. Cómo extender
+## 10. Ranking de modelos (`lib/`)
+
+`orchestra models` determina periódicamente los mejores modelos **baratos** para la
+rotación, en vez de hardcodear nombres en `config.json`:
+
+1. **Catálogo vivo**: `GET {baseUrl}/models` de `opencode-go` (`lib/models.mjs`), usando la
+   key de A/B o `~/.pi/agent/auth.json`.
+2. **Costos**: `~/.pi/agent/models-store.json` (fuente local autoritativa); se unen ambos y
+   se marcan los modelos que sólo están en el endpoint (sin costo cacheado).
+3. **Score**: se scrapea `arena.ai/leaderboard/code/webdev` (`lib/leaderboard.mjs`, portado
+   de `aoalejo/opencode_mcp`). El match maneja sufijos de esfuerzo (`-max`, `-high`, …).
+4. **Pools** (`lib/rank.mjs`): `author`/`verifier` = mejores baratos (`workerMaxInputCost`);
+   `verifier` rota la lista del `author` para nunca coincidir en el mismo índice; `fallback` =
+   siguientes baratos; `escalation*` = top de score.
+
+```bash
+orchestra models            # muestra el ranking, no escribe nada
+orchestra models --apply    # escribe roles/fallback en config.json (backup .bak)
+orchestra models --json     # salida máquina
+```
+
+Si `models.rankings.autoApply` es `true`, en cada corrida real se refresca (si el archivo
+`.orchestra/models.generated.json` supera `maxAgeDays`) y se aplican los pools solos.
+
+## 11. Cómo extender
 
 - **Nuevo rol**: crear `agents/<rol>.md` + `roles.<rol>` en config + usarlo en el loop.
 - **Nueva estrategia de integración**: hoy sólo `merge-branch`; `integration.strategy` está listo para `patch-apply` u otras.

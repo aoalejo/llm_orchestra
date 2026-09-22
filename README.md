@@ -16,6 +16,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Rotación de 2 cuentas**: orquestador en A, workers en B; si B se agota, el orquestador decide.
 - **Presupuesto** (costo + tokens), **anti-loop** con escalado de modelo, **meta-review**, **resume** y **self-test** offline.
 - **Runner stub** (`--stub` / `ORCHESTRA_RUNNER=stub`) para correr el ciclo completo sin red.
+- **Ranking de modelos** (`orchestra models`): cruza el catálogo real de `opencode-go`
+  con el score WebDev de [arena.ai](https://arena.ai/leaderboard/code/webdev) y propone
+  (o aplica con `--apply`) los modelos baratos para la rotación y los de escalado.
 - Solo el **orquestador commitea**.
 
 ## Documentación
@@ -54,6 +57,8 @@ cp .orchestra/env.example .orchestra/.env   # cargar cuentas A y B
 
 orchestra --self-test          # valida el runtime
 orchestra --task <id> --stub   # ciclo offline (sin red ni keys) para probar el pipeline
+orchestra models               # ranking de modelos (opencode-go + arena.ai)
+orchestra models --apply       # aplica la rotación recomendada a config.json
 orchestra --keys-status        # ver cuentas configuradas
 orchestra --plan               # el orquestador planifica
 orchestra --task <id> --dry-run
@@ -68,6 +73,7 @@ O desde pi: `/orchestra --keys-status`, `/orchestra --plan`.
 ```
 orchestra/
   orchestra.mjs        # driver (CLI + runtime)
+  lib/                 # ranking de modelos (catálogo opencode-go + arena.ai)
   agents/              # prompts de rol (orchestrator, author, verifier, ...)
   prompts/             # workflow prompts de pi
   templates/           # plantillas para `orchestra init`
@@ -80,6 +86,7 @@ En el proyecto consumidor:
 .orchestra/
   config.json   STATE.md   tasks.json
   env.example   .gitignore
+  models.generated.json      # ranking de modelos (git-ignored)
   runs/ scratch/ worktrees/   (git-ignored)
 ```
 

@@ -12,6 +12,8 @@ scratch/
 worktrees/
 *.log
 ledger.local.jsonl
+models.generated.json
+config.json.bak
 
 # OS / editor
 .DS_Store

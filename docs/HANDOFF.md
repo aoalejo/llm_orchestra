@@ -7,11 +7,13 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **27/27 OK**.
+- `node orchestra.mjs --self-test` → **35/35 OK**.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
 - **Runner stub** (`--stub`) para correr el ciclo completo sin red ni keys (validado en repo temporal:
   scout → autor → gate → verifier → aprobación → merge).
+- **Ranking de modelos** (`orchestra models`): catálogo opencode-go + arena.ai → pools de
+  rotación baratos y escalado; `--apply` los escribe en `config.json`.
 
 ## Mejoras del ciclo aplicadas después de v0.2.1
 
@@ -28,6 +30,9 @@
 10. Limpieza de la rama `orchestra/<id>` tras integrar.
 11. Gate: si la tarea no declara `targets`, se ignoran las claves `$comment` de `config.gates`
     (antes se ejecutaban como comando shell). Extraído a `gateCommands()` con test.
+12. **Ranking de modelos** (`orchestra models [--apply]`) en `lib/`: catálogo vivo de
+    opencode-go + costos de pi + score WebDev de arena.ai → pools de rotación y escalado.
+    Auto-refresh configurable (`models.rankings`).
 
 ## Qué falta (para ejecutar el primer trabajo real)
 
@@ -63,11 +68,9 @@ Orden sugerido (los de código, sin depender de credenciales externas):
 4. `p0-backoffice-recovery`
 5. `p0-delivery-zone-validation`
 6. `p0-stock-reservation` / `p0-order-idempotency`
-7. `p0-mp-integration` → **bloqueada**: falta decidir cuenta MP única vs OAuth por comercio + sandbox.
 
 ## Preguntas abiertas para el humano
 
-- Mercado Pago: ¿cuenta única para todos los comercios o OAuth por comercio?
 - ¿Se commitea el scaffold de `.orchestra/` + docs en gastronomía? (hoy untracked)
 - ¿Quién valida QA además del gate + verificación adversa?
 
@@ -77,6 +80,8 @@ Orden sugerido (los de código, sin depender de credenciales externas):
 node orchestra.mjs --self-test
 node orchestra.mjs --keys-status
 node orchestra.mjs --task <id> --stub --dry-run   # pipeline offline, sin red ni keys
+node orchestra.mjs models                         # ranking opencode-go + arena.ai
+node orchestra.mjs models --apply                 # aplica rotación a config.json
 node orchestra.mjs --plan
 node orchestra.mjs --task <id> --dry-run
 node orchestra.mjs --task <id> --commit

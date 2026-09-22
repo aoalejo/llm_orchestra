@@ -44,7 +44,6 @@ Los primeros trabajos del caso real fueron, en orden:
 4. **Recuperación de contraseña del backoffice** — rutas que estaban en un módulo legacy no montado.
 5. **Validación de zona de entrega** — resolver zona por dirección en vez de tomar la primera.
 6. **Reserva de stock con vencimiento** + **idempotencia** de pedidos.
-7. **Integración de pagos (Mercado Pago)** — bloqueada por decisión de alcance y credenciales.
 
 Detalle completo y estado: en el repo del consumidor
 (`docs/plan/CUMPLIMIENTO-ANEXO-v1.6.md` y `.orchestra/tasks.json`).

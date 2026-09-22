@@ -8,7 +8,7 @@
 - **Merge agent best-effort**: puede resolver conflictos simples; conflictos complejos
   quedan para humano.
 - **Detección de agotamiento heurística** (regex sobre errores): puede dar falsos positivos/negativos.
-- **Sin tests formales del driver**: la red de seguridad es `--self-test` (27 casos, lógica pura) y el runner `--stub`, que permite correr el pipeline completo sin red en un repo temporal.
+- **Sin tests formales del driver**: la red de seguridad es `--self-test` (35 casos, lógica pura) y el runner `--stub`, que permite correr el pipeline completo sin red en un repo temporal.
 - **Sin provider además de `opencode-go` cableado** (aunque `provider` es config).
 - **Costo**: no hay estimación previa por tarea; sólo corte por presupuesto (costo y tokens).
 - **Paralelismo real**: hasta 4; los gates compiten por CPU y pueden ser el cuello. El merge y el scribe están serializados por cola.
@@ -21,6 +21,8 @@
 - **Fallback real**: `ALLOW_WORKER_FALLBACK` y `useFallbackModels` (cuenta A o `fallback.models`).
 - **Rutas protegidas por diff real**, no sólo por `scope` declarado.
 - **Limpieza de rama** `orchestra/<id>` tras integrar.
+- **Ranking de modelos** (`orchestra models`) contra el catálogo opencode-go + arena.ai,
+  con `--apply` y auto-refresh (`models.rankings`); portado de `aoalejo/opencode_mcp`.
 
 ## Ideas v3
 

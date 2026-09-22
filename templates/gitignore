@@ -10,3 +10,5 @@ worktrees/
 *.log
 ledger.jsonl
 ledger.local.jsonl
+models.generated.json
+config.json.bak

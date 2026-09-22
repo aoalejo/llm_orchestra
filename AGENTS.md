@@ -17,11 +17,15 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 27/27
+node orchestra.mjs --self-test        # 35/35
 node orchestra.mjs --help
 
 # Ciclo offline (sin red ni keys) — valida el pipeline completo
 node orchestra.mjs --task <id> --stub --dry-run
+
+# Ranking de modelos (catálogo opencode-go + arena.ai)
+node orchestra.mjs models
+node orchestra.mjs models --apply
 
 # En un proyecto consumidor
 cd /ruta/al/proyecto
@@ -59,6 +63,7 @@ Reglas duras:
 | Archivo | Qué es |
 |---|---|
 | `orchestra.mjs` | Driver completo (CLI + runtime). Única dependencia: Node ≥20. |
+| `lib/*.mjs` | Ranking de modelos: `models.mjs` (catálogo/refresh), `rank.mjs` (pools), `leaderboard.mjs` (arena.ai). |
 | `agents/*.md` | Prompts de rol (orchestrator, author, verifier, security-reviewer, scout, scribe, merge-agent). |
 | `prompts/*.md` | Prompt templates de pi (`/ralph-cycle`, `/p0-critical`). |
 | `templates/*` | Plantillas que usa `orchestra init`. |
@@ -97,7 +102,7 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `node orchestra.mjs --self-test`. Si no pasa 27/27, arreglá eso primero.
+1. Corré `node orchestra.mjs --self-test`. Si no pasa 35/35, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` + corré el self-test.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
 4. Para agregar un modelo/rol: editalo en `templates/config.json` (y en `agents/` si es un rol nuevo).
@@ -110,4 +115,4 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 - Los gates de mobile usan `yarn --cwd`; puede requerir corepack según el proyecto.
 - Backend de Paisanitos hoy tiene 0 tests → el gate corre `--passWithNoTests`.
 - Si corrés sin `--commit`, el worktree se **conserva** para inspección (a propósito).
-- El `selfTest` no usa red ni keys (hoy 27 casos). Corré el loop completo sin red con `--stub`.
+- El `selfTest` no usa red ni keys (hoy 35 casos). Corré el loop completo sin red con `--stub`.

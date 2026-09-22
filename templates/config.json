@@ -46,6 +46,16 @@
   "metaReview": { "enabled": true, "sampleRate": 0.34, "alwaysForHighRisk": true },
   "progress": { "repeatSignatureLimit": 2 },
 
+  "models": {
+    "$comment": "Ranking de rotación: `orchestra models [--apply]` cruza catálogo opencode-go + arena.ai. workerMaxInputCost = tope USD/M input para entrar a la rotación.",
+    "workerMaxInputCost": 0.5,
+    "workersPerRole": 3,
+    "fallbackCount": 3,
+    "minContextWindow": 200000,
+    "arenaUrl": "https://arena.ai/leaderboard/code/webdev",
+    "rankings": { "enabled": true, "maxAgeDays": 7, "autoApply": false }
+  },
+
   "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
 
   "gates": {

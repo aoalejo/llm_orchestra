@@ -22,6 +22,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { refreshRankings, rankingsStale } from './lib/models.mjs';
+import { configPatchFromRanking, rankModels } from './lib/rank.mjs';
+import { matchModel } from './lib/leaderboard.mjs';
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = path.join(SELF_DIR, 'templates');
@@ -36,7 +39,8 @@ const WORKTREES = path.join(O, 'worktrees');
 const LEDGER = path.join(O, 'ledger.jsonl');
 
 let VERBOSE = false;
-const log = (...a) => console.log('[orchestra]', ...a);
+let QUIET = false; // modo --json: sólo salida máquina en stdout
+const log = (...a) => { if (!QUIET) console.log('[orchestra]', ...a); };
 const vlog = (...a) => { if (VERBOSE) console.log('[orchestra][v]', ...a); };
 const warn = (...a) => console.warn('[orchestra][warn]', ...a);
 const die = (m) => { console.error('[orchestra][error]', m); process.exit(1); };
@@ -72,7 +76,7 @@ function maskKey(v) {
   return v.length > 10 ? `${v.slice(0, 4)}…${v.slice(-3)}` : '***';
 }
 function parseArgs(argv) {
-  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false, stub: false, help: false };
+  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false, stub: false, help: false, models: false, apply: false, json: false, refresh: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--task') out.task = argv[++i];
@@ -87,6 +91,10 @@ function parseArgs(argv) {
     else if (a === '--workers') { const n = Number(argv[++i]); out.workers = Number.isFinite(n) && n > 0 ? n : null; }
     else if (a === '--no-worktrees') out.noWorktrees = true;
     else if (a === '--stub') out.stub = true;
+    else if (a === 'models') out.models = true;
+    else if (a === '--apply') out.apply = true;
+    else if (a === '--json') out.json = true;
+    else if (a === '--refresh') out.refresh = true;
     else if (a === 'init') out.init = true;
     else if (a === '--force') out.force = true;
     else if (a === '--help' || a === '-h') out.help = true;
@@ -668,6 +676,53 @@ function initProject(force) {
   log('init listo. Editá .orchestra/config.json y completá .orchestra/.env');
 }
 
+/* ───────────────────────────── models ─────────────────────────────────────── */
+
+function applyConfigPatch(config, patch) {
+  const out = structuredClone(config);
+  out.roles = { ...out.roles, ...(patch.roles || {}) };
+  out.fallback = { ...(out.fallback || {}), ...(patch.fallback || {}) };
+  return out;
+}
+
+function applyAndSaveRanking(config, ranking, configPath) {
+  const next = applyConfigPatch(config, configPatchFromRanking(ranking));
+  if (exists(configPath)) fs.copyFileSync(configPath, `${configPath}.bak`);
+  writeJson(configPath, next);
+  return next;
+}
+
+async function runModelsCommand(args, config) {
+  const configPath = path.join(O, 'config.json');
+  log(`consultando catálogo ${config.provider} + arena.ai ...`);
+  const ranking = await refreshRankings(config);
+  const doc = { generatedAt: now(), ...ranking };
+  writeJson(path.join(O, 'models.generated.json'), doc);
+  if (args.json) { console.log(JSON.stringify(doc, null, 2)); return doc; }
+
+  const fmt = (id) => {
+    const m = doc.ranked.find((x) => x.id === id);
+    return m ? `${id}${m.matched ? ` (#${m.arenaRank} ${m.score})` : ' (sin score)'} $${m.input}/$${m.output ?? '?'}` : id;
+  };
+  log(`catálogo: ${doc.liveCount} vivos | ${doc.counts.matched} con score | ${doc.counts.unmatched} sin score | arena ${doc.counts.arenaRows} filas`);
+  if (doc.liveError) warn(`no se pudo listar el endpoint (se usó el cache de costos): ${doc.liveError}`);
+  if (doc.liveOnly?.length) log(`nuevos en el endpoint (sin costo cacheado): ${doc.liveOnly.join(', ')}`);
+  if (doc.staleOnly?.length) warn(`en el cache pero ya no en el endpoint: ${doc.staleOnly.join(', ')}`);
+  console.log('\nROTACIÓN RECOMENDADA');
+  for (const [label, ids] of [['author', doc.author], ['verifier', doc.verifier], ['fallback', doc.fallback]]) {
+    for (let i = 0; i < ids.length; i++) console.log(`  ${(i === 0 ? label : '').padEnd(10)} ${fmt(ids[i])}`);
+  }
+  console.log(`  ${''.padEnd(10)} escalado: ${fmt(doc.escalationAuthor)} / ${fmt(doc.escalationVerifier)}`);
+
+  if (args.apply) {
+    applyAndSaveRanking(config, doc, configPath);
+    log('config.json actualizado (backup: config.json.bak)');
+  } else {
+    log('dry: usá --apply para escribir los pools en config.json');
+  }
+  return doc;
+}
+
 /* ───────────────────────────── self-test ───────────────────────────────────── */
 
 function selfTest() {
@@ -701,6 +756,29 @@ function selfTest() {
   eq('parseArgs --stub', parseArgs(['--stub']).stub === true);
   eq('gateCommands ignora $comment', (() => { const c = { gates: { $comment: 'no ejecutar', backend: ['a', 'b'] } }; return JSON.stringify(gateCommands(c, { targets: [] })) === JSON.stringify(['a', 'b']); })());
   eq('gateCommands respeta targets', (() => { const c = { gates: { backend: ['a'], mobile: ['m'] } }; return JSON.stringify(gateCommands(c, { targets: ['mobile'] })) === JSON.stringify(['m']); })());
+  eq('matchModel exacto', matchModel('qwen3.8-max', [{ rank: 1, slug: 'qwen3.8-max', score: 100 }])?.variant === null);
+  eq('matchModel variante', matchModel('deepseek-v4-flash', [{ rank: 1, slug: 'deepseek-v4-flash-high', score: 100 }])?.variant === 'high');
+  eq('matchModel sin match', matchModel('no-existe', [{ rank: 1, slug: 'otro', score: 1 }]) === null);
+  const rk = rankModels(
+    [
+      { id: 'cheap', cost: { input: 0.1, output: 0.2 }, contextWindow: 1000000 },
+      { id: 'cheap2', cost: { input: 0.2, output: 0.4 }, contextWindow: 1000000 },
+      { id: 'mid', cost: { input: 0.3, output: 0.6 }, contextWindow: 1000000 },
+      { id: 'top', cost: { input: 2, output: 6 }, contextWindow: 1000000 },
+    ],
+    [
+      { rank: 1, slug: 'top', score: 1700 },
+      { rank: 2, slug: 'mid', score: 1600 },
+      { rank: 3, slug: 'cheap', score: 1500 },
+      { rank: 4, slug: 'cheap2', score: 1450 },
+    ],
+    { workerMaxInputCost: 0.5, workersPerRole: 2, fallbackCount: 1 },
+  );
+  eq('rankModels author por score', rk.author[0] === 'mid' && rk.author[1] === 'cheap');
+  eq('rankModels verifier rota', rk.verifier[0] === 'cheap' && rk.verifier[1] === 'mid');
+  eq('rankModels escalation top', rk.escalationAuthor === 'top' && rk.escalationVerifier === 'mid');
+  eq('rankModels fallback barato', rk.fallback[0] === 'cheap2');
+  eq('configPatchFromRanking', (() => { const p = configPatchFromRanking(rk); return p.roles.author.length === 2 && p.fallback.models[0] === 'cheap2'; })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -718,22 +796,26 @@ async function main() {
   orchestra init [--force]          # scaffold .orchestra/ en el proyecto actual
   orchestra --self-test
   orchestra --keys-status
+  orchestra models [--apply] [--json] [--refresh]
+                                    # ranking de modelos (opencode + arena.ai)
   orchestra --plan
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
-Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status`);
+Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status
+       models [--apply] [--json] --stub`);
     return;
   }
   if (args.selfTest) return selfTest();
   if (args.init) return initProject(args.force);
 
   if (!exists(path.join(O, 'config.json'))) die('falta .orchestra/config.json');
-  const config = readJson(path.join(O, 'config.json'));
+  let config = readJson(path.join(O, 'config.json'));
   VERBOSE = args.verbose;
   loadEnv(path.join(O, '.env'));            // antes de resolvePi: ORCHESTRA_PI_CLI puede venir del .env
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
 
+  if (args.models) { if (args.json) QUIET = true; await runModelsCommand(args, config); return; }
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
 
   const runner = args.stub || process.env.ORCHESTRA_RUNNER === 'stub' ? 'stub' : 'real';
@@ -754,6 +836,24 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
     if (d?.stateMarkdown) { fs.writeFileSync(path.join(O, 'STATE.md'), d.stateMarkdown.endsWith('\n') ? d.stateMarkdown : d.stateMarkdown + '\n'); log('STATE.md actualizado'); }
     console.log(r.text);
     return;
+  }
+
+  // Rankings de modelos: refresh best-effort si están viejos (una vez cada maxAgeDays).
+  if (runner === 'real' && config.models?.rankings?.enabled !== false && !args.plan) {
+    try {
+      const genPath = path.join(O, 'models.generated.json');
+      const gen = exists(genPath) ? readJson(genPath) : null;
+      const maxAge = config.models?.rankings?.maxAgeDays ?? 7;
+      if (args.refresh || rankingsStale(gen?.generatedAt, maxAge)) {
+        const ranking = await refreshRankings(config);
+        writeJson(genPath, { generatedAt: now(), ...ranking });
+        log(`rankings de modelos actualizados → author: ${ranking.author.join(', ')}`);
+        if (config.models?.rankings?.autoApply) {
+          config = applyAndSaveRanking(config, ranking, path.join(O, 'config.json'));
+          log('pools de rotación aplicados a config.json');
+        }
+      }
+    } catch (e) { warn(`no se pudo actualizar rankings: ${e.message}`); }
   }
 
   const pending = tasksDoc.tasks.filter((t) => t.status === 'pending' || t.status === 'in-progress');
