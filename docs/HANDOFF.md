@@ -4,12 +4,30 @@
 
 ## Estado (2026-09-22)
 
-- **Paquete v0.2.0**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tag `v0.2.0`).
+- **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **13/13 OK**.
+- `node orchestra.mjs --self-test` → **27/27 OK**.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
-  presupuesto, resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
+  presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
+- **Runner stub** (`--stub`) para correr el ciclo completo sin red ni keys (validado en repo temporal:
+  scout → autor → gate → verifier → aprobación → merge).
+
+## Mejoras del ciclo aplicadas después de v0.2.1
+
+1. `.orchestra/.env` se carga **antes** de `resolvePi` (el `ORCHESTRA_PI_CLI` del `.env` ahora sí se usa).
+2. **dry-run** deja de mutar el backlog: no corre `scribe` ni marca `done`.
+3. Rutas protegidas se chequean también contra los **archivos que el diff realmente tocó**.
+4. Al agotarse la cuenta B, el driver **re-resuelve** la key (antes el autor corría con `apiKey: undefined`).
+5. `ALLOW_WORKER_FALLBACK` y `useFallbackModels` implementados (cuenta A o `fallback.models`).
+6. `escalateModel` del anti-loop ahora fija el autor de escalado (`state.forcedAuthor`).
+7. Presupuesto por **tokens** además de costo, chequeado tras autor y verificación.
+8. **Colas FIFO** serializan merge en `ROOT`, `scribe` y escritura de `tasks.json` en paralelo;
+   se relee `tasks.json` fresco antes de escribir.
+9. `--workers` inválido ya no produce `NaN`.
+10. Limpieza de la rama `orchestra/<id>` tras integrar.
+11. Gate: si la tarea no declara `targets`, se ignoran las claves `$comment` de `config.gates`
+    (antes se ejecutaban como comando shell). Extraído a `gateCommands()` con test.
 
 ## Qué falta (para ejecutar el primer trabajo real)
 
@@ -58,6 +76,7 @@ Orden sugerido (los de código, sin depender de credenciales externas):
 ```bash
 node orchestra.mjs --self-test
 node orchestra.mjs --keys-status
+node orchestra.mjs --task <id> --stub --dry-run   # pipeline offline, sin red ni keys
 node orchestra.mjs --plan
 node orchestra.mjs --task <id> --dry-run
 node orchestra.mjs --task <id> --commit

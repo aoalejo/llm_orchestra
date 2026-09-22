@@ -33,7 +33,7 @@ export default function orchestraExtension(pi: ExtensionAPI) {
   pi.registerCommand("orchestra", {
     description: "Lean Orchestrator: init / plan / task / status (multi-modelo)",
     getArgumentCompletions: (prefix) => {
-      const options = ["init", "--plan", "--keys-status", "--self-test", "--all", "--task ", "--help"];
+      const options = ["init", "--plan", "--keys-status", "--self-test", "--all", "--stub", "--no-worktrees", "--task ", "--help"];
       const filtered = options.filter((o) => o.startsWith(prefix));
       return filtered.length ? filtered.map((value) => ({ value, label: value })) : null;
     },

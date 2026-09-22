@@ -72,7 +72,7 @@ function maskKey(v) {
   return v.length > 10 ? `${v.slice(0, 4)}…${v.slice(-3)}` : '***';
 }
 function parseArgs(argv) {
-  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false };
+  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false, stub: false, help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--task') out.task = argv[++i];
@@ -84,8 +84,9 @@ function parseArgs(argv) {
     else if (a === '--verbose') out.verbose = true;
     else if (a === '--self-test') out.selfTest = true;
     else if (a === '--keys-status') out.keysStatus = true;
-    else if (a === '--workers') out.workers = Number(argv[++i]);
+    else if (a === '--workers') { const n = Number(argv[++i]); out.workers = Number.isFinite(n) && n > 0 ? n : null; }
     else if (a === '--no-worktrees') out.noWorktrees = true;
+    else if (a === '--stub') out.stub = true;
     else if (a === 'init') out.init = true;
     else if (a === '--force') out.force = true;
     else if (a === '--help' || a === '-h') out.help = true;
@@ -143,6 +144,19 @@ function isProtected(config, task) {
   const paths = config.protectedPaths || [];
   return (task.scope || []).some((s) => paths.some((p) => pathsConflict(s, p)));
 }
+// Versión estricta: evalúa los archivos que el diff realmente modificó (no solo el scope declarado).
+function isProtectedChange(config, files) {
+  const paths = config.protectedPaths || [];
+  return (files || []).some((f) => paths.some((p) => pathsConflict(f, p)));
+}
+// Comandos de gate de una tarea: sus targets o todos los targets válidos (ignora claves $comment).
+function gateCommands(config, task) {
+  const gates = config.gates || {};
+  const targets = task.targets?.length
+    ? task.targets
+    : Object.keys(gates).filter((k) => !k.startsWith('$') && Array.isArray(gates[k]));
+  return targets.flatMap((t) => gates[t] || []);
+}
 
 function workOrderText(task, ctx) {
   return [
@@ -165,14 +179,47 @@ function workOrderText(task, ctx) {
   ].filter(Boolean).join('\n');
 }
 
-function pickAuthorVerifier(config, cycle, maxCycles) {
+function pickAuthorVerifier(config, cycle, maxCycles, forced = null) {
   const authors = config.roles.author;
   const verifiers = config.roles.verifier;
   const last = cycle === maxCycles;
-  const author = last && config.roles.escalationAuthor ? config.roles.escalationAuthor : authors[(cycle - 1) % authors.length];
-  let verifier = last && config.roles.escalationVerifier ? config.roles.escalationVerifier : verifiers[(cycle - 1) % verifiers.length];
-  if (verifier === author) verifier = verifiers[cycle % verifiers.length];
+  const author = forced?.author
+    || (last && config.roles.escalationAuthor ? config.roles.escalationAuthor : authors[(cycle - 1) % authors.length]);
+  let verifier = forced?.verifier
+    || (last && config.roles.escalationVerifier ? config.roles.escalationVerifier : verifiers[(cycle - 1) % verifiers.length]);
+  if (verifier === author) verifier = verifiers.find((m) => m !== author) || verifiers[cycle % verifiers.length];
   return { author, verifier, last };
+}
+
+// Par de modelos de fallback (cuando se agota la cuenta B y el orquestador lo permite).
+function pickFallbackPair(config, cycle) {
+  const fb = config.fallback?.models || [];
+  if (!fb.length) return null;
+  const author = fb[(cycle - 1) % fb.length];
+  const verifier = fb.find((m) => m !== author) || author;
+  return { author, verifier };
+}
+
+// Suma usage al estado de la tarea (costo + tokens) y devuelve el costo.
+function recordUsage(state, usage) {
+  if (!usage) return 0;
+  state.spentUsd = (state.spentUsd || 0) + (usage.cost || 0);
+  state.tokens = state.tokens || { input: 0, output: 0 };
+  state.tokens.input = (state.tokens.input || 0) + (usage.input || 0);
+  state.tokens.output = (state.tokens.output || 0) + (usage.output || 0);
+  return usage.cost || 0;
+}
+
+// Corte por presupuesto: costo y tokens de entrada/salida.
+function budgetStatus(config, state) {
+  const b = config.budget || {};
+  const usd = state.spentUsd || 0;
+  const input = state.tokens?.input || 0;
+  const output = state.tokens?.output || 0;
+  if (b.maxUsdPerTask && usd > b.maxUsdPerTask) return { ok: false, reason: `costo $${usd.toFixed(4)} > $${b.maxUsdPerTask}` };
+  if (b.maxInputTokensPerTask && input > b.maxInputTokensPerTask) return { ok: false, reason: `input tokens ${input} > ${b.maxInputTokensPerTask}` };
+  if (b.maxOutputTokensPerTask && output > b.maxOutputTokensPerTask) return { ok: false, reason: `output tokens ${output} > ${b.maxOutputTokensPerTask}` };
+  return { ok: true };
 }
 
 function shouldMetaReview(config, highRisk, rng = Math.random) {
@@ -298,6 +345,23 @@ async function writeDiff(cwd, file) {
   return r.out || '';
 }
 
+// Cola FIFO: serializa operaciones que tocan el repo raíz (merge, scribe, tasks.json)
+// cuando hay tareas corriendo en paralelo.
+function makeQueue() {
+  let tail = Promise.resolve();
+  return (fn) => {
+    const run = tail.then(fn, fn);
+    tail = run.then(() => {}, () => {});
+    return run;
+  };
+}
+
+async function changedFiles(cwd) {
+  await runProcess('git', ['add', '-A', '-N'], { cwd });
+  const r = await runProcess('git', ['diff', '--name-only'], { cwd });
+  return r.out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+
 /* ───────────────────────────── worktrees ───────────────────────────────────── */
 
 function linkWorktreeDeps(wtDir) {
@@ -332,6 +396,9 @@ async function removeWorktree(config, task) {
   if (!config.worktrees?.enabled) return;
   const dir = path.join(ROOT, config.worktrees.dir || '.orchestra/worktrees', task.id);
   await runProcess('git', ['worktree', 'remove', '--force', dir], {});
+  // Limpieza: tras integrar, la rama de la tarea ya cumplió su función.
+  const branch = `${config.integration?.branchPrefix || 'orchestra/'}${task.id}`;
+  await runProcess('git', ['branch', '-D', branch], {});
 }
 
 /* ─────────────────────────────── keys ──────────────────────────────────────── */
@@ -345,6 +412,8 @@ function pickKey(config, ks, role) {
     const name = names[(ks.workerKeyIdx + i) % names.length];
     if (!ks.exhausted.has(name)) { ks.workerKeyIdx = (ks.workerKeyIdx + i + 1) % names.length; return { name, value: process.env[name] }; }
   }
+  // Fallback decidido por el orquestador: reutilizar la cuenta A para workers.
+  if (ks.useOrchestratorKey) return { name: config.keys.orchestrator, value: process.env[config.keys.orchestrator] };
   return null;
 }
 function keysStatus(config) {
@@ -396,7 +465,7 @@ async function runTaskLoop(ctx, task, taskDir) {
   const maxCycles = config.loop.maxCycles || 4;
   const stateFile = path.join(taskDir, 'state.json');
 
-  let state = { cycle: 0, spentUsd: 0, status: 'in-progress', lastSignature: null, repeats: 0, approved: false };
+  let state = { cycle: 0, spentUsd: 0, tokens: { input: 0, output: 0 }, status: 'in-progress', lastSignature: null, repeats: 0, approved: false, useFallback: false, forcedAuthor: null };
   if (exists(stateFile)) {
     const prev = readJson(stateFile);
     if (prev.status === 'approved') return prev;
@@ -408,7 +477,7 @@ async function runTaskLoop(ctx, task, taskDir) {
   if (config.scout?.enabled && !state.scoutMap) {
     const s = await callScout(ctx, task, ctx.taskDir);
     state.scoutMap = (s.text || '').slice(0, 6000);
-    state.spentUsd += s.usage?.cost || 0;
+    recordUsage(state, s.usage);
     saveState();
     log('  scout: contexto comprimido');
   }
@@ -416,16 +485,27 @@ async function runTaskLoop(ctx, task, taskDir) {
   for (let cycle = state.cycle + 1; cycle <= maxCycles; cycle++) {
     const cycleDir = path.join(taskDir, `cycle-${cycle}`);
     ensureDir(cycleDir);
-    const { author, verifier } = pickAuthorVerifier(config, cycle, maxCycles);
-    log(`  ciclo ${cycle}/${maxCycles}: author=${author} verifier=${verifier}`);
+    const forced = state.useFallback ? pickFallbackPair(config, cycle) : (state.forcedAuthor ? { author: state.forcedAuthor } : null);
+    const { author, verifier } = pickAuthorVerifier(config, cycle, maxCycles, forced);
+    log(`  ciclo ${cycle}/${maxCycles}: author=${author} verifier=${verifier}${forced ? ' (forzado)' : ''}`);
 
     // AUTHOR
-    const aKey = pickKey(config, ctx.keyState, 'worker');
+    let aKey = ctx.runner === 'stub' ? { name: 'stub', value: 'stub' } : pickKey(config, ctx.keyState, 'worker');
     if (!aKey) {
       const dec = await callOrchestrator(ctx, `Se agotó la cuenta de workers en ${task.id}. Respondé JSON {"action":"useOrchestratorKey|useFallbackModels|pause","reason":"..."}.`, path.join(cycleDir, 'escalation-key.json'));
       const d = extractLastJson(dec.text);
-      if (d?.action === 'useOrchestratorKey' && process.env[config.keys.orchestrator]) ctx.keyState.exhausted.clear();
-      else { warn('pausando por credenciales de workers agotadas'); state.status = 'blocked'; saveState(); return state; }
+      const allowFallback = process.env.ALLOW_WORKER_FALLBACK === '1';
+      if ((d?.action === 'useOrchestratorKey' || allowFallback) && process.env[config.keys.orchestrator]) {
+        warn('workers agotados → reutilizando cuenta del orquestador (A) para esta tarea');
+        ctx.keyState.useOrchestratorKey = true;
+        aKey = pickKey(config, ctx.keyState, 'worker');
+      } else if (d?.action === 'useFallbackModels' || allowFallback) {
+        warn('workers agotados → usando modelos de fallback');
+        state.useFallback = true;
+      } else {
+        warn('pausando por credenciales de workers agotadas');
+        state.status = 'blocked'; saveState(); return state;
+      }
     }
     const authorOut = await callModel({
       runner: ctx.runner, pi: ctx.pi, provider: config.provider, model: author, apiKey: aKey?.value,
@@ -433,35 +513,42 @@ async function runTaskLoop(ctx, task, taskDir) {
       prompt: workOrderText(task, { workdir: ctx.workdir, scoutMap: state.scoutMap }),
       tools: ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write'], logFile: path.join(cycleDir, 'author.json'), cwd: ctx.workdir, role: 'author',
     });
-    state.spentUsd += authorOut.usage?.cost || 0;
+    recordUsage(state, authorOut.usage);
     if (authorOut.exhausted && aKey) ctx.keyState.exhausted.add(aKey.name);
     appendJsonl(LEDGER, { ts: now(), task: task.id, cycle, role: 'author', model: author, key: aKey?.name, cost: authorOut.usage?.cost || 0, turns: authorOut.usage?.turns || 0, exhausted: !!authorOut.exhausted });
 
-    if (state.spentUsd > (config.budget.maxUsdPerTask || Infinity)) { warn(`presupuesto superado ($${state.spentUsd.toFixed(4)})`); state.status = 'blocked'; saveState(); return state; }
+    const budgetAfterAuthor = budgetStatus(config, state);
+    if (!budgetAfterAuthor.ok) { warn(`presupuesto superado: ${budgetAfterAuthor.reason}`); state.status = 'blocked'; saveState(); return state; }
 
     // GATE
-    const targets = task.targets?.length ? task.targets : Object.keys(config.gates);
-    const commands = targets.flatMap((t) => config.gates[t] || []);
-    const gate = await runGate(commands, path.join(cycleDir, 'gate.log'), ctx.workdir);
+    const commands = gateCommands(config, task);
+    const gate = ctx.runner === 'stub'
+      ? (fs.writeFileSync(path.join(cycleDir, 'gate.log'), `# gate stub (sin ejecución real)\n${commands.join('\n')}\n`), { ok: true, results: [] })
+      : await runGate(commands, path.join(cycleDir, 'gate.log'), ctx.workdir);
     log(`  gate: ${gate.ok ? 'VERDE' : 'ROJO'}`);
     if (!gate.ok) { state.cycle = cycle; appendJsonl(LEDGER, { ts: now(), task: task.id, cycle, role: 'gate', ok: false }); saveState(); continue; }
 
     // VERIFY
-    await writeDiff(ctx.workdir, path.join(cycleDir, 'diff.patch'));
+    if (ctx.runner === 'stub') fs.writeFileSync(path.join(cycleDir, 'diff.patch'), '');
+    else await writeDiff(ctx.workdir, path.join(cycleDir, 'diff.patch'));
     const verdicts = [];
     const v1 = await callVerifier(ctx, task, verifier, 'verifier', 'a', cycleDir);
-    state.spentUsd += v1.out.usage?.cost || 0;
+    recordUsage(state, v1.out.usage);
     verdicts.push(v1.verdict || { verdict: 'FAIL', findings: [] });
     if (highRisk && config.loop.doubleVerifyHighRisk) {
       const second = config.roles.verifier.find((m) => m !== author && m !== verifier) || config.roles.verifier[0];
       const v2 = await callVerifier(ctx, task, second, 'verifier', 'b', cycleDir);
-      state.spentUsd += v2.out.usage?.cost || 0;
+      recordUsage(state, v2.out.usage);
       verdicts.push(v2.verdict || { verdict: 'FAIL', findings: [] });
-      const vs = await callVerifier(ctx, task, config.roles.security, 'security-reviewer', 'sec', cycleDir);
-      state.spentUsd += vs.out.usage?.cost || 0;
+      const securityModel = config.roles.security || config.roles.verifier[0];
+      const vs = await callVerifier(ctx, task, securityModel, 'security-reviewer', 'sec', cycleDir);
+      recordUsage(state, vs.out.usage);
       verdicts.push(vs.verdict || { verdict: 'FAIL', findings: [] });
     }
     writeJson(path.join(cycleDir, 'verdict.json'), verdicts);
+
+    const budgetAfterVerify = budgetStatus(config, state);
+    if (!budgetAfterVerify.ok) { warn(`presupuesto superado tras verificación: ${budgetAfterVerify.reason}`); state.status = 'blocked'; saveState(); return state; }
 
     const failed = verdicts.some((v) => v.verdict !== 'PASS' || (v.findings || []).some((f) => f.severity === 'high'));
 
@@ -475,6 +562,10 @@ async function runTaskLoop(ctx, task, taskDir) {
         const dec = await callOrchestrator(ctx, `La tarea ${task.id} está estancada con los mismos findings:\n${sig}\n\nRespondé JSON {"action":"escalateModel|park|continue","model":"<opcional>","reason":"..."}.`, path.join(cycleDir, 'stall.json'));
         const d = extractLastJson(dec.text);
         if (d?.action === 'park') { state.status = 'blocked'; saveState(); return state; }
+        if (d?.action === 'escalateModel') {
+          state.forcedAuthor = d.model || config.roles.escalationAuthor;
+          warn(`  forzando autor de escalado: ${state.forcedAuthor}`);
+        }
         state.repeats = 0;
       }
     } else { state.repeats = 0; }
@@ -514,30 +605,33 @@ async function runTaskLoop(ctx, task, taskDir) {
 
 async function integrateTask(ctx, task, wt, commitMessage) {
   if (!wt.ephemeral) return { ok: true, skipped: true };
-  // Commit en el worktree (en nombre del orquestador)
-  await runProcess('git', ['add', '-A'], { cwd: wt.dir });
-  const c = await runProcess('git', ['commit', '-m', commitMessage], { cwd: wt.dir });
-  if (c.code !== 0 && !/nothing to commit/i.test(c.out + c.err)) return { ok: false, log: c.out + c.err };
-  // Merge a la rama base
-  const m = await runProcess('git', ['merge', '--no-ff', '--no-edit', wt.branch], { cwd: ROOT });
-  if (m.code === 0) return { ok: true, log: m.out };
-  // Merge agent
-  if (ctx.config.integration?.mergeAgent) {
-    warn(`conflicto al integrar ${task.id}; invocando merge-agent`);
-    const key = pickKey(ctx.config, ctx.keyState, 'worker');
-    const fix = await callModel({
-      runner: ctx.runner, pi: ctx.pi, provider: ctx.config.provider, model: ctx.config.roles.merge, apiKey: key?.value,
-      systemPrompt: readAgent('merge-agent'),
-      prompt: `Resolvé los conflictos de merge en ${ROOT} para integrar ${wt.branch}.\nEvento de merge:\n${(m.out + m.err).slice(0, 4000)}`,
-      tools: ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write'], logFile: path.join(RUNS, task.id, 'merge-agent.json'), cwd: ROOT, role: 'merge-agent',
-    });
-    if (fix.exhausted && key) ctx.keyState.exhausted.add(key.name);
-    await runProcess('git', ['add', '-A'], { cwd: ROOT });
-    const mc = await runProcess('git', ['commit', '--no-edit'], { cwd: ROOT });
-    if (mc.code === 0) return { ok: true, log: 'resuelto por merge-agent' };
-  }
-  await runProcess('git', ['merge', '--abort'], { cwd: ROOT });
-  return { ok: false, conflict: true, log: m.out + m.err };
+  // Serializado: el merge toca ROOT y no debe solaparse entre tareas paralelas.
+  return ctx.queues.git(async () => {
+    // Commit en el worktree (en nombre del orquestador)
+    await runProcess('git', ['add', '-A'], { cwd: wt.dir });
+    const c = await runProcess('git', ['commit', '-m', commitMessage], { cwd: wt.dir });
+    if (c.code !== 0 && !/nothing to commit/i.test(c.out + c.err)) return { ok: false, log: c.out + c.err };
+    // Merge a la rama base
+    const m = await runProcess('git', ['merge', '--no-ff', '--no-edit', wt.branch], { cwd: ROOT });
+    if (m.code === 0) return { ok: true, log: m.out };
+    // Merge agent
+    if (ctx.config.integration?.mergeAgent) {
+      warn(`conflicto al integrar ${task.id}; invocando merge-agent`);
+      const key = pickKey(ctx.config, ctx.keyState, 'worker');
+      const fix = await callModel({
+        runner: ctx.runner, pi: ctx.pi, provider: ctx.config.provider, model: ctx.config.roles.merge, apiKey: key?.value,
+        systemPrompt: readAgent('merge-agent'),
+        prompt: `Resolvé los conflictos de merge en ${ROOT} para integrar ${wt.branch}.\nEvento de merge:\n${(m.out + m.err).slice(0, 4000)}`,
+        tools: ['read', 'grep', 'find', 'ls', 'bash', 'edit', 'write'], logFile: path.join(RUNS, task.id, 'merge-agent.json'), cwd: ROOT, role: 'merge-agent',
+      });
+      if (fix.exhausted && key) ctx.keyState.exhausted.add(key.name);
+      await runProcess('git', ['add', '-A'], { cwd: ROOT });
+      const mc = await runProcess('git', ['commit', '--no-edit'], { cwd: ROOT });
+      if (mc.code === 0) return { ok: true, log: 'resuelto por merge-agent' };
+    }
+    await runProcess('git', ['merge', '--abort'], { cwd: ROOT });
+    return { ok: false, conflict: true, log: m.out + m.err };
+  });
 }
 
 /* ───────────────────────────── concurrency ─────────────────────────────────── */
@@ -593,6 +687,20 @@ function selfTest() {
   eq('stub orchestrator APPROVE', JSON.parse(stubModel({ role: 'orchestrator', prompt: 'Aprobá' }).text).decision === 'APPROVE');
   eq('stub verifier PASS', JSON.parse(stubModel({ role: 'verifier', prompt: '' }).text).verdict === 'PASS');
   eq('pathsConflict raiz', pathsConflict('apps/x/', 'apps/x/y.ts') === true);
+  eq('isProtectedChange detecta diff', isProtectedChange({ protectedPaths: ['apps/backend/prisma/migrations/'] }, ['apps/backend/prisma/migrations/001/x.sql']) === true);
+  eq('isProtectedChange ignora ajeno', isProtectedChange({ protectedPaths: ['apps/backend/'] }, ['apps/mobile/App.tsx']) === false);
+  eq('recordUsage acumula', (() => { const s = {}; recordUsage(s, { cost: 0.5, input: 10, output: 5 }); recordUsage(s, { cost: 0.25, input: 2, output: 1 }); return Math.abs(s.spentUsd - 0.75) < 1e-9 && s.tokens.input === 12 && s.tokens.output === 6; })());
+  eq('budgetStatus corta por costo', budgetStatus({ budget: { maxUsdPerTask: 1 } }, { spentUsd: 1.5 }).ok === false);
+  eq('budgetStatus corta por output', budgetStatus({ budget: { maxOutputTokensPerTask: 10 } }, { spentUsd: 0, tokens: { input: 0, output: 11 } }).ok === false);
+  eq('budgetStatus ok', budgetStatus({ budget: { maxUsdPerTask: 1 } }, { spentUsd: 0.5, tokens: {} }).ok === true);
+  eq('pickFallbackPair distintos', (() => { const p = pickFallbackPair({ fallback: { models: ['a', 'b'] } }, 1); return p && p.author !== p.verifier; })());
+  eq('pickFallbackPair vacío', pickFallbackPair({ fallback: { models: [] } }, 1) === null);
+  eq('pickAuthorVerifier forzado', (() => { const c = { roles: { author: ['m1'], verifier: ['m2'] } }; const r = pickAuthorVerifier(c, 1, 4, { author: 'zz' }); return r.author === 'zz' && r.verifier !== 'zz'; })());
+  eq('parseArgs --workers inválido', parseArgs(['--workers', 'x']).workers === null);
+  eq('parseArgs --workers válido', parseArgs(['--workers', '3']).workers === 3);
+  eq('parseArgs --stub', parseArgs(['--stub']).stub === true);
+  eq('gateCommands ignora $comment', (() => { const c = { gates: { $comment: 'no ejecutar', backend: ['a', 'b'] } }; return JSON.stringify(gateCommands(c, { targets: [] })) === JSON.stringify(['a', 'b']); })());
+  eq('gateCommands respeta targets', (() => { const c = { gates: { backend: ['a'], mobile: ['m'] } }; return JSON.stringify(gateCommands(c, { targets: ['mobile'] })) === JSON.stringify(['m']); })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -623,21 +731,23 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (!exists(path.join(O, 'config.json'))) die('falta .orchestra/config.json');
   const config = readJson(path.join(O, 'config.json'));
   VERBOSE = args.verbose;
-  const tasksFile = path.join(O, 'tasks.json');
-  const tasksDoc = readJson(tasksFile);
-  const pi = resolvePi(config);
+  loadEnv(path.join(O, '.env'));            // antes de resolvePi: ORCHESTRA_PI_CLI puede venir del .env
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
-  loadEnv(path.join(O, '.env'));
 
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
 
-  log(`pi: ${pi.label} | provider: ${config.provider} | runner: real`);
+  const runner = args.stub || process.env.ORCHESTRA_RUNNER === 'stub' ? 'stub' : 'real';
+  const pi = runner === 'stub' ? { label: 'stub', command: 'stub', prefix: [], shell: false } : resolvePi(config);
+  const tasksFile = path.join(O, 'tasks.json');
+  const tasksDoc = readJson(tasksFile);
+
+  log(`pi: ${pi.label} | provider: ${config.provider} | runner: ${runner}`);
   if (!process.env[config.keys.orchestrator]) warn(`falta ${config.keys.orchestrator} en .orchestra/.env`);
   if (!config.keys.workers.some((k) => process.env[k])) warn(`falta alguna de ${config.keys.workers.join(', ')} en .orchestra/.env`);
 
   if (args.plan) {
     const state = fs.readFileSync(path.join(O, 'STATE.md'), 'utf8');
-    const r = await callOrchestrator({ config, pi, runner: 'real', keyState: makeKeyState() },
+    const r = await callOrchestrator({ config, pi, runner, keyState: makeKeyState() },
       `Sos el orquestador. Actualizá el contexto global y elegí la próxima tarea.\n\nSTATE.md:\n${state}\n\nBacklog:\n${JSON.stringify(tasksDoc.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, risk: t.risk })), null, 2)}\n\nRespondé SOLO JSON: {"stateMarkdown":"...","nextTask":"<id>","workOrder":"..."}.`,
       path.join(RUNS, 'plan.orchestrator.json'));
     const d = extractLastJson(r.text);
@@ -654,7 +764,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (!selected.length) { log('no hay tareas pendientes'); return; }
 
   const limit = args.noWorktrees ? 1 : (args.workers || config.loop.maxParallelTasks || 1);
-  const ctx = { config, pi, runner: 'real', keyState: makeKeyState(), workdir: ROOT, taskDir: null };
+  const ctx = { config, pi, runner, keyState: makeKeyState(), workdir: ROOT, taskDir: null, queues: { git: makeQueue(), book: makeQueue() } };
   const results = [];
 
   await runWithConcurrency(selected, limit, async (task) => {
@@ -665,27 +775,53 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
     const state = await runTaskLoop(tctx, task, taskDir);
 
     let integration = { ok: false, skipped: true };
-    const protectedTask = isProtected(config, task);
-    if (state.approved) {
-      if (args.commit && !args.dryRun) {
-        if (protectedTask && !args.yes) warn(`ruta protegida: se requiere --yes; sin commit.`);
-        else integration = await integrateTask(tctx, task, wt, state.commitMessage);
-      } else { log(`  dry-run: commit propuesto -> ${state.commitMessage}`); integration = { ok: true, skipped: true }; }
+    let protectedTask = isProtected(config, task);
+    let protectedBy = protectedTask ? 'scope declarado' : null;
 
-      // Scribe (solo si se avanzó)
-      const key = pickKey(config, ctx.keyState, 'worker');
-      await callModel({
-        runner: 'real', pi, provider: config.provider, model: config.roles.scribe, apiKey: key?.value,
-        systemPrompt: readAgent('scribe'),
-        prompt: `La tarea ${task.id} pasó. Actualizá .orchestra/STATE.md (bitácora) y .orchestra/tasks.json (status=done).`,
-        tools: ['read', 'grep', 'find', 'ls', 'edit', 'write'], logFile: path.join(taskDir, 'scribe.json'), cwd: ROOT, role: 'scribe',
+    if (state.approved) {
+      // Chequeo estricto sobre los archivos que el diff realmente tocó.
+      if (runner !== 'stub') {
+        const changed = await changedFiles(wt.dir);
+        if (isProtectedChange(config, changed)) { protectedTask = true; protectedBy = protectedBy || 'archivos modificados'; }
+      }
+
+      if (args.dryRun) {
+        log(`  dry-run: commit propuesto -> ${state.commitMessage}`);
+        integration = { ok: true, skipped: true, dryRun: true };
+      } else if (args.commit) {
+        if (protectedTask && !args.yes) warn(`ruta protegida (${protectedBy}): se requiere --yes; sin commit.`);
+        else integration = await integrateTask(tctx, task, wt, state.commitMessage);
+      } else {
+        log('  sin --commit: no se integra; worktree conservado para inspección');
+        integration = { ok: true, skipped: true };
+      }
+
+      const integrated = integration.ok && !integration.skipped;
+      if (integrated) {
+        // Scribe + backlog, serializado para no pisarse entre tareas paralelas.
+        await ctx.queues.book(async () => {
+          const key = pickKey(config, ctx.keyState, 'worker');
+          await callModel({
+            runner, pi, provider: config.provider, model: config.roles.scribe, apiKey: key?.value,
+            systemPrompt: readAgent('scribe'),
+            prompt: `La tarea ${task.id} pasó y fue integrada. Actualizá .orchestra/STATE.md (bitácora) y la matriz de cumplimiento si existe. NO edites tasks.json (lo hace el driver).`,
+            tools: ['read', 'grep', 'find', 'ls', 'edit', 'write'], logFile: path.join(taskDir, 'scribe.json'), cwd: ROOT, role: 'scribe',
+          });
+          const fresh = readJson(tasksFile);
+          const ft = fresh.tasks.find((t) => t.id === task.id);
+          if (ft) ft.status = 'done';
+          writeJson(tasksFile, fresh);
+        });
+      } else if (!args.dryRun) {
+        log('  aprobada sin integrar: no se marca done (reintentá con --commit).');
+      }
+    } else if (!args.dryRun) {
+      await ctx.queues.book(async () => {
+        const fresh = readJson(tasksFile);
+        const ft = fresh.tasks.find((t) => t.id === task.id);
+        if (ft) { ft.status = state.status === 'blocked' ? 'blocked' : 'pending'; ft.attempts = (ft.attempts || 0) + (config.loop.maxCycles || 4); }
+        writeJson(tasksFile, fresh);
       });
-      task.status = 'done';
-      writeJson(tasksFile, tasksDoc);
-    } else {
-      task.attempts = (task.attempts || 0) + (config.loop.maxCycles || 4);
-      task.status = state.status === 'blocked' ? 'blocked' : 'pending';
-      writeJson(tasksFile, tasksDoc);
     }
 
     if (wt.ephemeral) {

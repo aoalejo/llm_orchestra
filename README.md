@@ -14,7 +14,8 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Ciclo Ralph**: autor → gate determinista → verifier → (repetir rotando modelos).
 - **Worktrees paralelos** (hasta 4) + **merge agent** ante conflictos.
 - **Rotación de 2 cuentas**: orquestador en A, workers en B; si B se agota, el orquestador decide.
-- **Presupuesto**, **anti-loop**, **meta-review**, **resume** y **self-test** offline.
+- **Presupuesto** (costo + tokens), **anti-loop** con escalado de modelo, **meta-review**, **resume** y **self-test** offline.
+- **Runner stub** (`--stub` / `ORCHESTRA_RUNNER=stub`) para correr el ciclo completo sin red.
 - Solo el **orquestador commitea**.
 
 ## Documentación
@@ -30,7 +31,7 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 
 ```bash
 # Desde GitHub (recomendado)
-pi install git:git@github.com:aoalejo/llm_orchestra@v0.2.0
+pi install git:git@github.com:aoalejo/llm_orchestra@v0.2.1
 # o
 pi install https://github.com/aoalejo/llm_orchestra
 
@@ -52,6 +53,7 @@ orchestra init                 # crea .orchestra/ desde las plantillas
 cp .orchestra/env.example .orchestra/.env   # cargar cuentas A y B
 
 orchestra --self-test          # valida el runtime
+orchestra --task <id> --stub   # ciclo offline (sin red ni keys) para probar el pipeline
 orchestra --keys-status        # ver cuentas configuradas
 orchestra --plan               # el orquestador planifica
 orchestra --task <id> --dry-run

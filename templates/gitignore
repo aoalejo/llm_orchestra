@@ -8,4 +8,5 @@ runs/
 scratch/
 worktrees/
 *.log
+ledger.jsonl
 ledger.local.jsonl

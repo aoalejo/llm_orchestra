@@ -51,10 +51,10 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 3. **Ciclo 1..maxCycles**:
    a. Elegir `{author, verifier}` con `pickAuthorVerifier` — rotan por ciclo y el verifier **nunca** es el author; el último ciclo usa los modelos de escalado.
    b. **Author**: corre con `workOrderText(task)` + mapa del scout. Suma costo.
-   c. **Presupuesto**: si supera `budget.maxUsdPerTask`, marca `blocked` y sale.
+   c. **Presupuesto**: si supera `budget.maxUsdPerTask`, `maxInputTokensPerTask` o `maxOutputTokensPerTask`, marca `blocked` y sale. Se chequea tras el autor y tras la verificación.
    d. **Gate determinista**: corre todos los comandos del `targets` (o todos si no hay). Si rojo → siguiente ciclo (sin gastar verifier LLM).
    e. **Verify**: `git diff` → verifier adversario. Si `risk` alto y `doubleVerifyHighRisk`: 2º verifier + security-reviewer.
-   f. **Anti-loop**: firma de findings (`file:line:problem`, sorted). Si se repite `repeatSignatureLimit` veces → pregunta al orquestador (`escalateModel|park|continue`).
+   f. **Anti-loop**: firma de findings (`file:line:problem`, sorted). Si se repite `repeatSignatureLimit` veces → pregunta al orquestador (`escalateModel|park|continue`). `escalateModel` fija `state.forcedAuthor` (o usa `kimi-k2.7-code`).
    g. **Meta-review**: con probabilidad `sampleRate` (o siempre en alto riesgo) el orquestador audita el PASS (`CONFIRM|OVERTURN`).
    h. **Aprobación final**: el orquestador responde `{decision, commitMessage, reason}`. `APPROVE` → estado `approved`.
 4. Sin aprobar tras N ciclos → `failed` (escalar a humano).
@@ -64,9 +64,11 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 - `prepareWorktree`: `git worktree add -b orchestra/<id> <dir> HEAD`; enlaza `node_modules` por junction/symlink.
 - El author/verifier trabajan con `cwd = worktree`.
 - Al aprobar **y** con `--commit` (y no `--dry-run`):
+  - Chequeo **estricto** de rutas protegidas sobre los archivos que el diff realmente tocó (`git diff --name-only`), no solo el `scope` declarado.
   - `integrateTask`: `git add -A && git commit` **en el worktree** (commit en nombre del orquestador) y luego `git merge --no-ff` a la rama base.
-  - Si hay conflicto y `integration.mergeAgent`: se invoca `merge-agent` para resolver; reintenta commit.
-- Si **no** se integró (dry-run, sin `--commit`, o ruta protegida sin `--yes`), el worktree se **conserva** y se informa la ruta.
+  - El merge está **serializado por una cola** (`makeQueue`) porque toca `ROOT`: evita carreras entre tareas paralelas. El `scribe` y la escritura de `tasks.json` usan otra cola y releen el archivo fresco antes de escribir.
+  - Tras integrar, el worktree y su rama `orchestra/<id>` se limpian.
+- Al aprobar sin integrar (dry-run, sin `--commit`, o ruta protegida sin `--yes`), el worktree se **conserva** y **no** se marca `done` en `tasks.json` (reintentá con `--commit`).
 - Paralelismo: `runWithConcurrency` con límite `--workers` o `loop.maxParallelTasks` (máx 4 sugerido).
 
 ## 6. Keys y rotación
@@ -96,11 +98,15 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red:
-`extractLastJson`, `findingsSignature`, `isProtected`, `workOrderText`,
-`pickAuthorVerifier`, `shouldMetaReview`, `stubModel`, `pathsConflict`.
-**Si agregás lógica pura, agregá su caso.** El self-test ya cazó un bug real
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **27 casos**):
+`extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
+`workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
+`budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`.
+**Si agregás lógica pura, agregá su caso.** El self-test ya cazó bugs reales
 (`extractLastJson` tomaba objetos anidados).
+
+Además, `--stub` (`ORCHESTRA_RUNNER=stub`) corre el loop completo con `stubModel`,
+salteando gates y diff reales: sirve para validar el pipeline sin red ni keys en CI.
 
 ## 9. Extensión `/orchestra`
 
