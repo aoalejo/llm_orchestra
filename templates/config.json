@@ -1,0 +1,73 @@
+{
+  "$comment": "Config del Lean Orchestrator v2. Ajustá 'gates' y 'protectedPaths' a tu proyecto. Las keys se pasan por invocacion con `pi --api-key` (prioridad 1 sobre auth.json/env).",
+  "version": 2,
+  "provider": "opencode-go",
+
+  "keys": {
+    "orchestrator": "OPENCODE_GO_KEY_ORCHESTRATOR",
+    "workers": ["OPENCODE_GO_KEY_WORKER_1", "OPENCODE_GO_KEY_WORKER_2"]
+  },
+
+  "roles": {
+    "orchestrator": { "model": "qwen3.8-max", "key": "orchestrator", "thinking": "high" },
+    "judge": { "model": "qwen3.8-max", "key": "orchestrator", "thinking": "high" },
+    "author": ["mimo-v2.6-flash", "deepseek-v4.1-flash", "qwen3.8-flash"],
+    "verifier": ["deepseek-v4.1-flash", "qwen3.8-flash", "mimo-v2.6-flash"],
+    "security": "qwen3.8-flash",
+    "scout": "qwen3.8-flash",
+    "scribe": "qwen3.8-flash",
+    "merge": "deepseek-v4.1-flash",
+    "escalationAuthor": "kimi-k2.7-code",
+    "escalationVerifier": "deepseek-v4-pro"
+  },
+
+  "fallback": {
+    "models": ["glm-5.3-flash", "deepseek-v4-flash", "minimax-m3"],
+    "askOrchestratorOnExhaustion": true
+  },
+
+  "loop": {
+    "maxCycles": 4,
+    "maxParallelTasks": 4,
+    "doubleVerifyHighRisk": true,
+    "highRiskLevels": ["high", "critical"]
+  },
+
+  "worktrees": { "enabled": true, "dir": ".orchestra/worktrees", "linkNodeModules": true },
+
+  "integration": {
+    "strategy": "merge-branch",
+    "branchPrefix": "orchestra/",
+    "mergeAgent": true,
+    "humanOnConflict": false
+  },
+
+  "scout": { "enabled": true },
+  "metaReview": { "enabled": true, "sampleRate": 0.34, "alwaysForHighRisk": true },
+  "progress": { "repeatSignatureLimit": 2 },
+
+  "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
+
+  "gates": {
+    "$comment": "Comandos que se corren desde la raíz del proyecto (o el worktree). Agregá/quita targets según tu stack.",
+    "backend": ["npm --prefix apps/backend run lint", "npm --prefix apps/backend run build", "npm --prefix apps/backend test -- --runInBand --passWithNoTests"],
+    "mobile": ["yarn --cwd apps/mobile typecheck", "yarn --cwd apps/mobile lint", "yarn --cwd apps/mobile test --ci"],
+    "web": ["npm --prefix apps/web run build"],
+    "backoffice": ["npm --prefix apps/backoffice run lint", "npm --prefix apps/backoffice run build"]
+  },
+
+  "protectedPaths": [
+    "apps/backend/prisma/migrations/",
+    "apps/backend/src/paisanitos/orders/",
+    "apps/backend/src/paisanitos/auth/"
+  ],
+
+  "commit": {
+    "onlyOrchestrator": true,
+    "convention": "conventional",
+    "requireFlag": "--commit",
+    "requireHumanApprovalForProtected": true
+  },
+
+  "piCli": ""
+}

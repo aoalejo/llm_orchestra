@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Credenciales / secretos
+.env
+.env.*
+!.env.example
+
+# Artefactos de ejecución
+runs/
+scratch/
+worktrees/
+*.log
+ledger.local.jsonl
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

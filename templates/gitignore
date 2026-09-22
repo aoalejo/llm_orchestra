@@ -1,0 +1,11 @@
+# Credenciales locales (nunca commitear)
+.env
+.env.*
+!.env.example
+
+# Artefactos de ejecución (memoria del loop Ralph)
+runs/
+scratch/
+worktrees/
+*.log
+ledger.local.jsonl

@@ -1,0 +1,19 @@
+{
+  "$comment": "Backlog del orquestador. Cada tarea tiene contrato, scope, acceptance criteria, targets de gate y riesgo. El driver toma la primera 'pending'.",
+  "tasks": [
+    {
+      "id": "example-task",
+      "title": "Tarea de ejemplo (borrar)",
+      "status": "pending",
+      "risk": "medium",
+      "contractRef": "N/A",
+      "targets": ["backend"],
+      "scope": ["apps/backend/src/example.ts"],
+      "acceptance": [
+        "Describe un criterio verificable 1",
+        "Describe un criterio verificable 2"
+      ],
+      "attempts": 0
+    }
+  ]
+}

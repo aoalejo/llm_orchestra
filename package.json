@@ -1,0 +1,27 @@
+{
+  "name": "@paisanitos/pi-orchestra",
+  "version": "0.2.0",
+  "description": "Lean Orchestrator: Ralph loop multi-modelo con verificación adversa, worktrees y rotación de cuentas, para pi.",
+  "type": "module",
+  "bin": {
+    "orchestra": "./orchestra.mjs"
+  },
+  "keywords": ["pi-package", "orchestrator", "multi-agent", "ralph-loop"],
+  "license": "MIT",
+  "files": [
+    "orchestra.mjs",
+    "agents",
+    "prompts",
+    "templates",
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "pi": {
+    "extensions": ["./extensions"],
+    "prompts": ["./prompts"]
+  }
+}
