@@ -6,8 +6,9 @@
 ## Qué es este repo
 
 `llm_orchestra` (paquete pi `llm-orchestra`) implementa un **Lean Orchestrator**:
-un orquestador grande + workers baratos, con **Ralph loop**, **verificación adversa**
-y **rotación de cuentas**, para resolver tareas de programación en cualquier proyecto.
+**el orquestador es el chat** (vos) que despacha work orders a workers baratos; los workers
+corren el ciclo completo (autor → gate → verifier → rondas) y vuelven con un **resumen
+compacto**, con **verificación adversa** y **rotación de cuentas**.
 
 - No es un producto final: es una **herramienta de trabajo** para pi.
 - El runtime es global (este paquete); cada proyecto consumidor sólo tiene `.orchestra/`.
@@ -17,8 +18,8 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 72/72 (lógica pura)
-node tests/smoke.mjs                  # 20/20 (ciclo completo, repo temporal, sin red)
+node orchestra.mjs --self-test        # 80/80 (lógica pura)
+node tests/smoke.mjs                  # 31/31 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
 
@@ -28,6 +29,12 @@ node orchestra.mjs --task <id> --stub --dry-run
 # Ranking de modelos (catálogo opencode-go + arena.ai)
 node orchestra.mjs models
 node orchestra.mjs models --apply
+
+# Modo chat (el orquestador sos vos)
+node orchestra.mjs scout --query "dónde está el router de pagos" --json
+node orchestra.mjs dispatch --order '{"goal":"...","acceptance":["..."],"scope":["src/..."]}' --json
+node orchestra.mjs approve --task <id> --commit
+node orchestra.mjs status --json
 
 # Limpieza segura de worktrees huérfanos (no rompe el node_modules real)
 node orchestra.mjs --clean
@@ -69,7 +76,7 @@ Reglas duras:
 | Archivo | Qué es |
 |---|---|
 | `orchestra.mjs` | Entrypoint/CLI (325 líneas): `init`, `models`, `report`, `selfTest`, `main`. |
-| `lib/*.mjs` | Implementación: `loop` (autor/verifier/aprobación/integración), `runner` (pi/procesos), `worktrees`, `keys`, `pure` (lógica testeable), `models`/`rank`/`leaderboard` (ranking), `modelscmd`, `report`, `stub`, `agents`, `args`, `paths`, `log`, `util`. |
+| `lib/*.mjs` | Implementación: `loop` (autor/verifier/rondas/integración), `commands` (scout/dispatch/approve/reject/status), `runner` (pi/procesos), `worktrees`, `keys`, `pure` (lógica testeable), `models`/`rank`/`leaderboard` (ranking), `modelscmd`, `report`, `stub`, `agents`, `args`, `paths`, `log`, `util`. |
 | `agents/*.md` | Prompts de rol (orchestrator, author, verifier, security-reviewer, scout, scribe, merge-agent). |
 | `prompts/*.md` | Prompt templates de pi (`/ralph-cycle`, `/p0-critical`). |
 | `templates/*` | Plantillas que usa `orchestra init`. |
@@ -127,7 +134,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 72/72 + smoke 20/20). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 80/80 + smoke 31/31). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
@@ -145,7 +152,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (72 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- El `selfTest` no usa red ni keys (80 casos); `tests/smoke.mjs` valida el ciclo (31 invariantes).
 - **Timeout de pi**: `loop.piTimeoutMs` (default 15 min). Al vencer mata el árbol y deja
   `<rol>.json` (con `timedOut:true`), `<rol>.stream.jsonl`, `<rol>.stderr.log` y `heartbeat.json`.
 - **`--clean`**: si un run murió con `SIGKILL`, corré `orchestra --clean` (deslinkea junctions

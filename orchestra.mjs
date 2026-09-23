@@ -24,13 +24,15 @@ import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
   shouldMetaReview, pathsConflict, detectExhausted,
+  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
 import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor } from './lib/runner.mjs';
 import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList } from './lib/keys.mjs';
 import { checkKeys } from './lib/keys-check.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
-import { callOrchestrator, runTaskLoop, integrateTask } from './lib/loop.mjs';
+import { runTaskLoop, integrateTask } from './lib/loop.mjs';
+import { makeDeps, executeTask, scoutCommand, dispatchCommand, approveCommand, rejectCommand, statusCommand } from './lib/commands.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
@@ -216,6 +218,18 @@ async function selfTest() {
   eq('heartbeatPathFor global', heartbeatPathFor(path.join(RUNS, 'plan.orchestrator.json')) === path.join(RUNS, 'heartbeat.json'));
   const to = await runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeoutMs: 400 });
   eq('runProcess timeout → timedOut y code 124', to.timedOut === true && to.code === 124);
+  eq('slugify', slugify('Arreglar Login!!') === 'arreglar-login');
+  eq('normalizeWorkOrder inline', (() => {
+    const w = normalizeWorkOrder({ goal: 'arreglar login', acceptance: 'pasa el test', scope: 'src/a.js, src/b.js', risk: 'high' }, {});
+    return w.id === 'arreglar-login' && w.acceptance.length === 1 && w.scope.length === 2 && w.risk === 'high';
+  })());
+  eq('normalizeWorkOrder desde task', (() => {
+    const w = normalizeWorkOrder({ taskId: 'x' }, { id: 'x', title: 'T', acceptance: ['a'] });
+    return w.id === 'x' && w.title === 'T' && w.acceptance[0] === 'a';
+  })());
+  eq('validateWorkOrder exige acceptance', validateWorkOrder({ id: 'a', title: 'b', acceptance: [] }).some((e) => /acceptance/.test(e)));
+  eq('validateWorkOrder ok', validateWorkOrder({ id: 'a', title: 'b', acceptance: ['c'] }).length === 0);
+  eq('compactFindings filtra low', compactFindings([{ findings: [{ severity: 'low', file: 'a' }, { severity: 'high', file: 'b', line: 3, problem: 'x' }] }]).length === 1);
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -236,12 +250,20 @@ async function main() {
                                     # ranking de modelos (opencode + arena.ai)
   orchestra report [--json]         # costos y veredictos desde ledger.jsonl
   orchestra --clean [--force]       # limpia worktrees/ramas huérfanas (deslinkea junctions)
-  orchestra --plan
+  orchestra scout [--query "..."] [--task <id>] [--json]
+                                    # recon barato (no gasta tu contexto)
+  orchestra dispatch --order '<json>' [--order ...] [--workers N] [--commit] [--json]
+                                    # 1..N work orders en paralelo → resumen compacto
+  orchestra approve --task <id> [--commit] [--yes] [--message "..."]
+  orchestra reject --task <id> [--reason "..."]
+  orchestra status [--json]
+  orchestra --plan                  # imprime STATE.md + backlog (sin LLM)
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
 Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status --keys-check
-       models [--apply] [--json] --stub  report [--json]  --clean [--force]`);
+       models [--apply] [--json] --stub  report [--json]  --clean [--force]
+       scout|dispatch|approve|reject|status  --order <json> --orders <file> --decisions <json>`);
     return;
   }
   if (args.selfTest) return await selfTest();
@@ -250,6 +272,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (!exists(path.join(O, 'config.json'))) die('falta .orchestra/config.json');
   let config = readJson(path.join(O, 'config.json'));
   flags.verbose = args.verbose;
+  if (args.json) flags.quiet = true;   // sólo salida máquina en stdout
   setPiTimeout(config.loop?.piTimeoutMs);   // timeout de cada llamada a pi
   loadEnv(path.join(O, '.env'));            // antes de resolvePi: ORCHESTRA_PI_CLI puede venir del .env
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
@@ -268,15 +291,24 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   log(`pi: ${pi.label} | provider: ${config.provider} | runner: ${runner}`);
   if (!process.env[config.keys.orchestrator]) warn(`falta ${config.keys.orchestrator} en .orchestra/.env`);
   if (!workerKeyEntries(config).length) warn(`falta alguna key de worker en ${workerKeyNames(config).join(', ') || '(config.keys.workers)'} (.orchestra/.env)`);
+  if (args.decisionsRaw) {
+    try { args.decisions = JSON.parse(args.decisionsRaw); } catch (e) { die(`--decisions no es JSON válido: ${e.message}`); }
+  }
+
+  // Subcomandos de modo chat (el orquestador sos vos).
+  const needDeps = args.scout || args.dispatch || args.approve || args.reject;
+  const cmdDeps = needDeps ? makeDeps(config, pi, runner) : null;
+  if (args.scout) { await scoutCommand(args, config, cmdDeps); return; }
+  if (args.dispatch) { await dispatchCommand(args, config, cmdDeps); return; }
+  if (args.approve) { await approveCommand(args, config, cmdDeps); return; }
+  if (args.reject) { await rejectCommand(args, config, cmdDeps); return; }
+  if (args.status) { statusCommand(args, config); return; }
 
   if (args.plan) {
+    // En modo chat el orquestador sos vos: no hay LLM de planificación interno.
     const state = fs.readFileSync(path.join(O, 'STATE.md'), 'utf8');
-    const r = await callOrchestrator({ config, pi, runner, keyState: makeKeyState() },
-      `Sos el orquestador. Actualizá el contexto global y elegí la próxima tarea.\n\nSTATE.md:\n${state}\n\nBacklog:\n${JSON.stringify(tasksDoc.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, risk: t.risk })), null, 2)}\n\nRespondé SOLO JSON: {"stateMarkdown":"...","nextTask":"<id>","workOrder":"..."}.`,
-      path.join(RUNS, 'plan.orchestrator.json'));
-    const d = extractLastJson(r.text);
-    if (d?.stateMarkdown) { fs.writeFileSync(path.join(O, 'STATE.md'), d.stateMarkdown.endsWith('\n') ? d.stateMarkdown : d.stateMarkdown + '\n'); log('STATE.md actualizado'); }
-    console.log(r.text);
+    const backlog = tasksDoc.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, risk: t.risk }));
+    console.log(JSON.stringify({ state, backlog }, null, 2));
     return;
   }
 
@@ -310,78 +342,20 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
 
   const limit = args.noWorktrees ? 1 : (args.workers || config.loop.maxParallelTasks || 1);
   installSignalHandlers();   // Ctrl+C: limpiar worktrees a medio hacer
-  const ctx = { config, pi, runner, keyState: makeKeyState(), workdir: ROOT, taskDir: null, queues: { git: makeQueue(), book: makeQueue() } };
+  const deps = makeDeps(config, pi, runner);
+  deps.remainingTasks = selected.length;
   const results = [];
 
   await runWithConcurrency(selected, limit, async (task) => {
     log(`\n=== tarea ${task.id} (${task.risk}) — ${task.title} ===`);
-    const taskDir = path.join(RUNS, task.id); ensureDir(taskDir);
-    const wt = await prepareWorktree(config, task);
-    const tctx = { ...ctx, workdir: wt.dir, taskDir };
-    const state = await runTaskLoop(tctx, task, taskDir);
-
-    let integration = { ok: false, skipped: true };
-    let protectedTask = isProtected(config, task);
-    let protectedBy = protectedTask ? 'scope declarado' : null;
-
-    if (state.approved) {
-      // Chequeo estricto sobre los archivos que el diff realmente tocó.
-      if (runner !== 'stub') {
-        const changed = await changedFiles(wt.dir);
-        if (isProtectedChange(config, changed)) { protectedTask = true; protectedBy = protectedBy || 'archivos modificados'; }
-      }
-
-      if (args.dryRun) {
-        log(`  dry-run: commit propuesto -> ${state.commitMessage}`);
-        integration = { ok: true, skipped: true, dryRun: true };
-      } else if (args.commit) {
-        if (protectedTask && !args.yes) warn(`ruta protegida (${protectedBy}): se requiere --yes; sin commit.`);
-        else integration = await integrateTask(tctx, task, wt, state.commitMessage);
-      } else {
-        log('  sin --commit: no se integra; worktree conservado para inspección');
-        integration = { ok: true, skipped: true };
-      }
-
-      const integrated = integration.ok && !integration.skipped;
-      if (integrated) {
-        // Scribe + backlog, serializado para no pisarse entre tareas paralelas.
-        await ctx.queues.book(async () => {
-          const key = pickKey(config, ctx.keyState, 'worker');
-          await callModel({
-            runner, pi, provider: config.provider, model: config.roles.scribe, apiKey: key?.value,
-            systemPrompt: readAgent('scribe'),
-            prompt: `La tarea ${task.id} pasó y fue integrada. Actualizá .orchestra/STATE.md (bitácora) y la matriz de cumplimiento si existe. NO edites tasks.json (lo hace el driver).`,
-            tools: ['read', 'grep', 'find', 'ls', 'edit', 'write'], logFile: path.join(taskDir, 'scribe.json'), cwd: ROOT, role: 'scribe',
-          });
-          const fresh = readJson(tasksFile);
-          const ft = fresh.tasks.find((t) => t.id === task.id);
-          if (ft) ft.status = 'done';
-          writeJson(tasksFile, fresh);
-        });
-      } else if (!args.dryRun) {
-        log('  aprobada sin integrar: no se marca done (reintentá con --commit).');
-      }
-    } else if (!args.dryRun) {
-      await ctx.queues.book(async () => {
-        const fresh = readJson(tasksFile);
-        const ft = fresh.tasks.find((t) => t.id === task.id);
-        if (ft) { ft.status = state.status === 'blocked' ? 'blocked' : 'pending'; ft.attempts = (ft.attempts || 0) + (config.loop.maxCycles || 4); }
-        writeJson(tasksFile, fresh);
-      });
-    }
-
-    if (wt.ephemeral) {
-      if (integration.ok && !integration.skipped) {
-        await removeWorktree(config, task);
-      } else {
-        warn(`worktree conservado para inspección: ${wt.dir} (branch ${wt.branch})`);
-      }
-    }
-    log(`=== fin ${task.id} — aprobada=${!!state.approved} — costo≈$${(state.spentUsd || 0).toFixed(4)} — integración=${integration.ok ? 'ok' : integration.skipped ? 'dry' : 'falló'} ===`);
-    results.push({ task: task.id, ...state, integration });
+    const r = await executeTask(deps, task, {
+      autoApprove: !!args.commit, commit: !!args.commit, yes: args.yes, dryRun: args.dryRun, decisions: args.decisions,
+    });
+    log(`=== fin ${task.id} — ${r.status} — costo≈$${r.cost} — integración=${r.integration?.ok ? 'ok' : r.integration?.skipped ? 'dry' : 'falló'} ===`);
+    results.push(r);
   });
 
-  writeJson(path.join(RUNS, 'last-run.json'), { ts: now(), results: results.map((r) => ({ task: r.task, status: r.status, approved: !!r.approved, spentUsd: r.spentUsd, integration: r.integration?.ok ?? null })) });
+  writeJson(path.join(RUNS, 'last-run.json'), { ts: now(), results: results.map((r) => ({ task: r.id, status: r.status, approved: !!r.approved, spentUsd: r.cost, integration: r.integration?.ok ?? null })) });
   log('\nresumen guardado en .orchestra/runs/last-run.json');
 }
 

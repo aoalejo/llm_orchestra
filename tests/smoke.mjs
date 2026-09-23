@@ -31,7 +31,9 @@ const check = (name, cond, extra = '') => results.push({ name, ok: !!cond, extra
 
 function sh(cmd, args, cwd, env) {
   const r = spawnSync(cmd, args, { cwd, encoding: 'utf8', env: env ?? process.env, shell: false });
-  return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  const out = r.stdout ?? '';
+  const err = r.stderr ?? '';
+  return { code: r.status ?? 1, out, err, all: out + err };
 }
 const git = (args, cwd) => sh('git', args, cwd);
 const orchestra = (args, cwd, env) => sh(process.execPath, [DRIVER, ...args], cwd, env);
@@ -87,16 +89,16 @@ try {
   const tasksBefore = fs.readFileSync(path.join(O, 'tasks.json'), 'utf8');
   const base = commitCount(tmp);
 
-  // 2. dry-run no muta nada
+  // 2. dry-run no muta nada (modo chat: sin --commit queda needs-approval)
   const dry = orchestra(['--task', 't1', '--stub', '--dry-run'], tmp, ENV);
   check('dry-run sale 0', dry.code === 0, dry.out.slice(-400));
   check('dry-run no muta tasks.json', fs.readFileSync(path.join(O, 'tasks.json'), 'utf8') === tasksBefore);
   check('dry-run no commitea', commitCount(tmp) === base, `${commitCount(tmp)} vs ${base}`);
-  check('dry-run aprueba en state.json', readJson(path.join(O, 'runs', 't1', 'state.json')).status === 'approved');
+  check('dry-run queda needs-approval', readJson(path.join(O, 'runs', 't1', 'state.json')).status === 'needs-approval');
 
   // 3. protegida sin --yes → no integra
   const prot = orchestra(['--task', 't3', '--stub', '--commit'], tmp, ENV);
-  check('protegida sin --yes avisa', /ruta protegida/i.test(prot.out), prot.out.slice(-400));
+  check('protegida sin --yes avisa', /ruta protegida/i.test(prot.all), prot.all.slice(-400));
   check('protegida sin --yes no commitea', commitCount(tmp) === base, `${commitCount(tmp)} vs ${base}`);
   check('protegida sin --yes no marca done', readJson(path.join(O, 'tasks.json')).tasks.find((t) => t.id === 't3').status !== 'done');
 
@@ -133,6 +135,45 @@ try {
   check('report --json es JSON válido', (() => {
     try { const j = JSON.parse(rep.out); return j.events > 0 && !!j.byRole.author && !!j.byTask.t1; } catch { return false; }
   })(), rep.out.slice(0, 200));
+
+  // 8. modo chat: scout / dispatch / status / approve
+  const scout = orchestra(['scout', '--query', 'recon de smoke', '--stub', '--json'], tmp, ENV);
+  check('scout --json responde ok', (() => {
+    try { const j = JSON.parse(scout.out); return j.status === 'ok' && typeof j.map === 'string'; } catch { return false; }
+  })(), scout.out.slice(0, 200));
+
+  const beforeChat = commitCount(tmp);
+  const order = JSON.stringify({ id: 'chat1', goal: 'crear archivo', acceptance: ['existe el cambio'], scope: ['stub-change-*'] });
+  const disp = orchestra(['dispatch', '--order', order, '--stub', '--json'], tmp, ENV);
+  check('dispatch corre y queda needs-approval', (() => {
+    try { const j = JSON.parse(disp.out); return j.results?.length === 1 && j.results[0].status === 'needs-approval' && j.results[0].approved === false; } catch { return false; }
+  })(), disp.out.slice(0, 400));
+  check('dispatch no commitea sin --commit', commitCount(tmp) === beforeChat);
+
+  const status = orchestra(['status', '--json'], tmp, ENV);
+  check('status muestra chat1 en needs-approval', (() => {
+    try { const j = JSON.parse(status.out); const t = (j.tasks || []).find((x) => x.id === 'chat1'); return !!t && t.state === 'needs-approval'; } catch { return false; }
+  })(), status.out.slice(0, 400));
+
+  const appr = orchestra(['approve', '--task', 'chat1', '--commit', '--stub', '--json'], tmp, ENV);
+  check('approve integra (commit + merge)', (() => {
+    try { const j = JSON.parse(appr.out); return j.approved === true && j.integration?.ok === true && commitCount(tmp) - beforeChat === 2; } catch { return false; }
+  })(), appr.out.slice(0, 400));
+  check('approve marca chat1 done', readJson(path.join(O, 'tasks.json')).tasks.find((t) => t.id === 'chat1')?.status === 'done');
+  check('el commit de approve incluye el cambio', /stub-change-/.test(treeFiles(tmp)));
+  check('approve limpia worktree/rama', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
+
+  // 8b. dispatch multi-orden (disjuntas) en paralelo, con --commit
+  const beforeBatch = commitCount(tmp);
+  const o1 = JSON.stringify({ id: 'b1', goal: 'backend', acceptance: ['a'], scope: ['stub-b1-*'] });
+  const o2 = JSON.stringify({ id: 'b2', goal: 'frontend', acceptance: ['b'], scope: ['stub-b2-*'] });
+  const batch = orchestra(['dispatch', '--order', o1, '--order', o2, '--workers', '2', '--stub', '--commit', '--json'], tmp, ENV);
+  check('dispatch multi-orden integra ambas', (() => {
+    try { const j = JSON.parse(batch.out); return j.results.length === 2 && j.results.every((r) => r.approved) && commitCount(tmp) - beforeBatch === 4; } catch { return false; }
+  })(), batch.out.slice(0, 500));
+  const doneAfterBatch = readJson(path.join(O, 'tasks.json')).tasks.filter((t) => t.status === 'done').map((t) => t.id);
+  check('dispatch multi-orden marca done', doneAfterBatch.includes('b1') && doneAfterBatch.includes('b2'), doneAfterBatch.join(','));
+  check('dispatch multi-orden limpia worktrees', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
 
   // 7. self-test del driver
   const st = orchestra(['--self-test'], tmp, ENV);

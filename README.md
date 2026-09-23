@@ -8,7 +8,8 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 
 ## Características
 
-- **Orquestador grande** (default `qwen3.8-max`) que planifica, escala y aprueba; **no** implementa.
+- **El orquestador es el chat** (vos): decide, despacha work orders y aprueba. No hay una capa
+  de management interna; los workers corren el ciclo completo y vuelven con un **resumen compacto**.
 - **Workers baratos** rotando (default `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash`),
   elegidos por datos con `orchestra models`.
 - **Verificación adversa**: un modelo distinto al autor intenta *falsar*.
@@ -66,6 +67,10 @@ cp .orchestra/env.example .orchestra/.env   # cargar cuentas A y B
 
 orchestra --self-test          # valida el runtime
 orchestra --task <id> --stub   # ciclo offline (sin red ni keys) para probar el pipeline
+orchestra scout --query "dónde está el router de pagos" --json
+orchestra dispatch --order '{"goal":"...","acceptance":["..."],"scope":["src/..."]}' --json
+orchestra approve --task <id> --commit        # el chat aprueba e integra
+orchestra status --json                       # estado de tareas
 orchestra models               # ranking de modelos (opencode-go + arena.ai)
 orchestra models --apply       # aplica la rotación recomendada a config.json
 orchestra --keys-status        # ver cuentas configuradas
@@ -110,7 +115,7 @@ contra el catálogo vivo de `opencode-go` y el score de arena.ai (ver arriba).
 
 | Rol | Modelo(s) por defecto | Cuenta |
 |---|---|---|
-| Orquestador / juez | `qwen3.8-max` | A |
+| Orquestador (el chat) | el modelo de tu sesión de pi | tu `auth.json` |
 | Autores | `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash` | B |
 | Verifiers | los mismos, rotados (nunca el autor del ciclo) | B |
 | Security / scout / scribe | `qwen3.8-flash` | B |

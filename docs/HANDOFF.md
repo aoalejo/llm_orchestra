@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **72/72 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **80/80 OK**; `node tests/smoke.mjs` → **31/31 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -63,6 +63,16 @@
     "sin datos desde Xs" con `--verbose`.
 26. **`orchestra --clean [--force]`**: limpieza segura de worktrees/ramas huérfanas; deslinkea
     los junctions antes de borrar (evita destruir el `node_modules` real) y conserva los aprobados.
+27. **Modo chat**: se ELIMINÓ el orquestador LLM interno (`qwen3.8-max`) y el meta-review. El
+    loop devuelve `needs-approval` (todo verde) o `needs-decision` (cuota/estancamiento) al chat,
+    que decide. `--commit`/`--yes` mantiene el flujo desatendido; `--plan` ya no usa LLM.
+28. **Subcomandos de chat** (`lib/commands.mjs`): `scout`, `dispatch` (1..N work orders en
+    paralelo), `approve`, `reject`, `status`, con salida `--json` **compacta** (sin transcripts).
+29. **Work orders**: `normalizeWorkOrder`/`validateWorkOrder` (goal + acceptance + scope +
+    targets + risk); el driver los normaliza, valida y persiste en `tasks.json`.
+30. **Worktree reuse**: `approve`/resume reusa el worktree existente en vez de recrearlo, así
+    no se pierden los cambios del autor entre `dispatch` y `approve`.
+31. Se quitó `agents/orchestrator.md`; `roles.orchestrator` queda sólo para `--keys-check`.
 
 ## Qué falta (para ejecutar el primer trabajo real)
 
