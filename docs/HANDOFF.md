@@ -7,13 +7,15 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **35/35 OK**.
+- `node orchestra.mjs --self-test` → **55/55 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
+- **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
 - **Runner stub** (`--stub`) para correr el ciclo completo sin red ni keys (validado en repo temporal:
   scout → autor → gate → verifier → aprobación → merge).
 - **Ranking de modelos** (`orchestra models`): catálogo opencode-go + arena.ai → pools de
   rotación baratos y escalado; `--apply` los escribe en `config.json`.
+- **Reporte de costos** (`orchestra report [--json]`) desde `.orchestra/ledger.jsonl`.
 
 ## Mejoras del ciclo aplicadas después de v0.2.1
 
@@ -33,6 +35,16 @@
 12. **Ranking de modelos** (`orchestra models [--apply]`) en `lib/`: catálogo vivo de
     opencode-go + costos de pi + score WebDev de arena.ai → pools de rotación y escalado.
     Auto-refresh configurable (`models.rankings`).
+13. **Match de arena robusto**: aliases (`qwen3.8-flash` → `qwen3.8-flash-next`), sufijos no
+    semánticos del id (`muse-spark-1.3-contributor`), overrides manuales (`mimo-v2.6-flash`)
+    e inferencia por familia desde el hermano de costo más parecido (marcada `inferred`).
+14. **Falso positivo de "key agotada"**: la detección ya no mira el texto del modelo, sólo
+    stderr/`errorMessage` (un author de pagos escribe `402`/`quota`/`insufficient` en el código).
+15. **`pathsConflict` por segmentos**: `orders/` ya no matchea `orders-v2/`.
+16. **Genérico**: se desacopló del proyecto downstream (prompts, gates/protectedPaths de la
+    plantilla, `worktrees.link` configurable, commit message default).
+17. **`orchestra report`** (costo por rol/modelo/tarea) + **smoke test** de integración + **CI**.
+18. **Señales**: SIGINT/SIGTERM limpia los worktrees a medio hacer (conserva los aprobados).
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

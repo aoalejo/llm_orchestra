@@ -8,8 +8,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 
 ## Características
 
-- **Orquestador grande** (`qwen3.8-max`) que planifica, escala y aprueba; **no** implementa.
-- **Workers baratos** (`mimo-v2.6-flash`, `deepseek-v4.1-flash`, `qwen3.8-flash`).
+- **Orquestador grande** (default `qwen3.8-max`) que planifica, escala y aprueba; **no** implementa.
+- **Workers baratos** rotando (default `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash`),
+  elegidos por datos con `orchestra models`.
 - **Verificación adversa**: un modelo distinto al autor intenta *falsar*.
 - **Ciclo Ralph**: autor → gate determinista → verifier → (repetir rotando modelos).
 - **Worktrees paralelos** (hasta 4) + **merge agent** ante conflictos.
@@ -19,6 +20,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Ranking de modelos** (`orchestra models`): cruza el catálogo real de `opencode-go`
   con el score WebDev de [arena.ai](https://arena.ai/leaderboard/code/webdev) y propone
   (o aplica con `--apply`) los modelos baratos para la rotación y los de escalado.
+- **Reporte de costos** (`orchestra report`): costo y llamadas por rol, modelo y tarea desde el ledger.
+- **Tests**: self-test de lógica pura + smoke de integración del ciclo completo (runner stub),
+  corridos en CI (ubuntu/windows × node 20/22) con `npm test`.
 - Solo el **orquestador commitea**.
 
 ## Documentación
@@ -64,6 +68,7 @@ orchestra --plan               # el orquestador planifica
 orchestra --task <id> --dry-run
 orchestra --task <id> --commit
 orchestra --all --workers 4
+orchestra report               # costos y veredictos del ledger
 ```
 
 O desde pi: `/orchestra --keys-status`, `/orchestra --plan`.
@@ -78,6 +83,8 @@ orchestra/
   prompts/             # workflow prompts de pi
   templates/           # plantillas para `orchestra init`
   extensions/          # comando /orchestra dentro de pi
+  tests/smoke.mjs      # integración del ciclo (sin red, runner stub)
+  .github/workflows/   # CI: self-test + smoke
 ```
 
 En el proyecto consumidor:
@@ -92,13 +99,16 @@ En el proyecto consumidor:
 
 ## Modelos y cuentas
 
-| Rol | Modelo(s) | Cuenta |
+Los nombres son el **default de la plantilla**; `orchestra models --apply` los recalcula
+contra el catálogo vivo de `opencode-go` y el score de arena.ai (ver arriba).
+
+| Rol | Modelo(s) por defecto | Cuenta |
 |---|---|---|
 | Orquestador / juez | `qwen3.8-max` | A |
-| Autores | `mimo-v2.6-flash`, `deepseek-v4.1-flash`, `qwen3.8-flash` | B |
-| Verifiers | rotan (≠ autor) | B |
+| Autores | `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash` | B |
+| Verifiers | los mismos, rotados (nunca el autor del ciclo) | B |
 | Security / scout / scribe | `qwen3.8-flash` | B |
-| Escalado | `kimi-k2.7-code` / `deepseek-v4-pro` | B |
+| Escalado | top de score (hoy `qwen3.8-max` / `kimi-k3`) | B |
 
 Las keys se pasan por invocación con `pi --api-key` (prioridad 1 sobre `auth.json`/env),
 así que nunca se mezclan: el orquestador conserva la cuenta A aunque B se agote.

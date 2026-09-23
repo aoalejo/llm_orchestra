@@ -17,7 +17,9 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 35/35
+node orchestra.mjs --self-test        # 55/55 (lógica pura)
+node tests/smoke.mjs                  # 20/20 (ciclo completo, repo temporal, sin red)
+npm test                              # ambos
 node orchestra.mjs --help
 
 # Ciclo offline (sin red ni keys) — valida el pipeline completo
@@ -68,6 +70,8 @@ Reglas duras:
 | `prompts/*.md` | Prompt templates de pi (`/ralph-cycle`, `/p0-critical`). |
 | `templates/*` | Plantillas que usa `orchestra init`. |
 | `extensions/orchestra.ts` | Comando `/orchestra` dentro de pi. |
+| `tests/smoke.mjs` | Integración del ciclo completo con runner stub (repo git temporal). |
+| `.github/workflows/ci.yml` | CI: self-test + smoke en ubuntu/windows × node 20/22. |
 | `docs/` | Documentación profunda (ver abajo). |
 | `package.json` | Manifiesto pi (`extensions`, `prompts`) + `bin: orchestra`. |
 
@@ -82,14 +86,18 @@ Reglas duras:
 
 ## Modelos (provider `opencode-go`)
 
+La tabla es el **default de la plantilla**. La fuente de verdad es `orchestra models`,
+que recalcula los pools contra el catálogo vivo + arena.ai:
+
 | Rol | Modelo | in/out USD/M | ctx |
 |---|---|---|---|
 | Orquestador/juez | `qwen3.8-max` | 2 / 6 | 1M |
-| Autor | `mimo-v2.6-flash` | 0.14 / 0.28 | 1M |
+| Autor | `qwen3.8-flash` (arena #9 vía `qwen3.8-flash-next`) | 0.15 / 0.47 | 1M |
+| Autor | `mimo-v2.6-flash` (override manual, ≈ #17) | 0.14 / 0.28 | 1M |
 | Autor | `deepseek-v4.1-flash` | 0.15 / 0.60 | 1M |
-| Autor/verifier/security/scout/scribe/merge | `qwen3.8-flash` | 0.15 / 0.47 | 1M |
-| Fallback | `glm-5.3-flash`, `deepseek-v4-flash`, `minimax-m3` | ~0.15–0.3 | 1M |
-| Escalado | `kimi-k2.7-code`, `deepseek-v4-pro` | 0.95/4 · 0.66/1.98 | 1M |
+| Barato destacado | `muse-spark-1.3-contributor` (arena #13 vía sufijo) | 0.10 / 0.20 | 1M |
+| Security/scout/scribe/merge | `qwen3.8-flash` | 0.15 / 0.47 | 1M |
+| Escalado | top de score (hoy `qwen3.8-max` / `kimi-k3`) | 2/6 · 3/15 | 1M |
 
 Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://opencode.ai/zen/go/v1`.
 
@@ -102,17 +110,25 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `node orchestra.mjs --self-test`. Si no pasa 35/35, arreglá eso primero.
-2. Para tocar código: implementá + agregá caso al `selfTest()` + corré el self-test.
+1. Corré `npm test` (self-test 55/55 + smoke 20/20). Si no pasa, arreglá eso primero.
+2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
+   `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
 4. Para agregar un modelo/rol: editalo en `templates/config.json` (y en `agents/` si es un rol nuevo).
+   Para que un modelo nuevo rankee: agregalo a `models.aliases` o `models.scoreOverrides`.
 5. Versioná: commit conventional + `git tag -a vX.Y.Z` + `git push origin main --tags`.
 6. Actualizá el paquete instalado: `pi update --extensions`.
 
 ## Gotchas conocidos
 
-- **Windows**: los worktrees enlazan `node_modules` con junction; si falla, el driver cae a ROOT.
-- Los gates de mobile usan `yarn --cwd`; puede requerir corepack según el proyecto.
-- Backend de Paisanitos hoy tiene 0 tests → el gate corre `--passWithNoTests`.
-- Si corrés sin `--commit`, el worktree se **conserva** para inspección (a propósito).
-- El `selfTest` no usa red ni keys (hoy 35 casos). Corré el loop completo sin red con `--stub`.
+- **Windows**: los worktrees enlazan dependencias con junction; si falla, el driver cae a ROOT.
+  Los patrones son `worktrees.link` (soporta `*`).
+- Los gates corren con `shell: true` desde la raíz del worktree; timeout `gates.timeoutMs` (default 20 min).
+  Si el proyecto no tiene tests, usá `--passWithNoTests` o sacá el comando del target.
+- Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
+- `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
+  deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
+- El `selfTest` no usa red ni keys (55 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
+  de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
+- `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.

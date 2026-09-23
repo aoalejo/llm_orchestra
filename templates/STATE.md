@@ -13,7 +13,7 @@
 1. Verificación adversa + ciclado de modelos en **toda** codificación.
 2. Solo el **orquestador** commitea (el driver ejecuta git en su nombre).
 3. Rutas protegidas requieren **aprobación humana** (`--yes`).
-4. Sin secretos en el repo. Migraciones versionadas (nunca `db push` en ramas compartidas).
+4. Sin secretos en el repo. Migraciones versionadas (nunca aplicar esquemas directo sobre ramas compartidas).
 
 ## Objetivo actual (editable por el orquestador)
 - **Foco:** (completar)

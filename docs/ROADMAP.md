@@ -8,7 +8,9 @@
 - **Merge agent best-effort**: puede resolver conflictos simples; conflictos complejos
   quedan para humano.
 - **Detección de agotamiento heurística** (regex sobre errores): puede dar falsos positivos/negativos.
-- **Sin tests formales del driver**: la red de seguridad es `--self-test` (35 casos, lógica pura) y el runner `--stub`, que permite correr el pipeline completo sin red en un repo temporal.
+- **Tests**: self-test de lógica pura (55 casos) + `tests/smoke.mjs` (20 invariantes del ciclo
+  completo con runner stub en un repo temporal), ambos en CI. Falta cobertura de los caminos
+  con red real (pi/provider) y de resolución de conflictos complejos del merge-agent.
 - **Sin provider además de `opencode-go` cableado** (aunque `provider` es config).
 - **Costo**: no hay estimación previa por tarea; sólo corte por presupuesto (costo y tokens).
 - **Paralelismo real**: hasta 4; los gates compiten por CPU y pueden ser el cuello. El merge y el scribe están serializados por cola.
@@ -23,6 +25,12 @@
 - **Limpieza de rama** `orchestra/<id>` tras integrar.
 - **Ranking de modelos** (`orchestra models`) contra el catálogo opencode-go + arena.ai,
   con `--apply` y auto-refresh (`models.rankings`); portado de `aoalejo/opencode_mcp`.
+- **Match robusto a arena**: aliases (`qwen3.8-flash` → `qwen3.8-flash-next`), sufijos no
+  semánticos del id (`muse-spark-1.3-contributor`), overrides manuales (`mimo-v2.6-flash`)
+  e inferencia por familia (hereda del hermano de costo más parecido).
+- **Reporte de costos** (`orchestra report`) desde el ledger.
+- **CI** (GitHub Actions) + **smoke test** de integración del ciclo.
+- **Manejo de señales**: SIGINT/SIGTERM limpia worktrees a medio hacer.
 
 ## Ideas v3
 
@@ -33,7 +41,7 @@
 4. **`patch-apply` / rebase** como estrategia de integración alternativa.
 5. **Provider fallback** a otros proveedores (no sólo modelos del mismo).
 6. **Cache de scout** por tarea/repo (evitar repetir recon).
-7. **Dashboard TUI** del ledger (costos por modelo, tasa de aprobación).
+7. **Dashboard del ledger**: hoy `orchestra report` (CLI/JSON); falta vista interactiva.
 8. **Soporte de múltiples cuentas A** (pool de orquestadores) y balanceo.
 9. **Skills de pi** para los workflows (`/implement-and-review` nativo).
 10. **Firma de findings normalizada con embeddings** (detectar estancamiento semántico, no textual).
@@ -41,9 +49,12 @@
 
 ## Deuda técnica
 
-- Unificar `orchestra.mjs` monolítico en módulos (`lib/`) cuando supere ~1200 líneas.
-- Tests de integración del driver **automatizados** en CI usando `--stub` y un repo temporal (hoy se valida a mano).
-- Manejo de señales (Ctrl+C) para limpiar worktrees a medio crear.
+- Unificar `orchestra.mjs` monolítico en módulos (`lib/`) cuando supere ~1200 líneas
+  (ya se extrajo el ranking de modelos a `lib/`).
+- ~~Tests de integración del driver automatizados en CI~~ → hecho (`tests/smoke.mjs` + workflow).
+- ~~Manejo de señales (Ctrl+C) para limpiar worktrees~~ → hecho.
+- Cobertura de errores de red reales (timeouts de pi, respuestas truncadas) con un runner fake.
+- Que `orchestra models` también proponga `roles.security/scout/scribe/merge` (hoy sólo autor/verifier/escalado/fallback).
 
 ## Cambios de contrato
 

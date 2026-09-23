@@ -23,7 +23,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { refreshRankings, rankingsStale } from './lib/models.mjs';
-import { configPatchFromRanking, rankModels } from './lib/rank.mjs';
+import { configPatchFromRanking, rankModels, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
 
 const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -76,7 +76,7 @@ function maskKey(v) {
   return v.length > 10 ? `${v.slice(0, 4)}…${v.slice(-3)}` : '***';
 }
 function parseArgs(argv) {
-  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false, stub: false, help: false, models: false, apply: false, json: false, refresh: false };
+  const out = { task: null, all: false, plan: false, commit: false, yes: false, dryRun: false, verbose: false, selfTest: false, keysStatus: false, workers: null, noWorktrees: false, init: false, force: false, stub: false, help: false, models: false, apply: false, json: false, refresh: false, report: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--task') out.task = argv[++i];
@@ -95,6 +95,7 @@ function parseArgs(argv) {
     else if (a === '--apply') out.apply = true;
     else if (a === '--json') out.json = true;
     else if (a === '--refresh') out.refresh = true;
+    else if (a === 'report') out.report = true;
     else if (a === 'init') out.init = true;
     else if (a === '--force') out.force = true;
     else if (a === '--help' || a === '-h') out.help = true;
@@ -144,9 +145,15 @@ function findingsSignature(verdicts) {
   );
 }
 
+// Conflicto de rutas por SEGMENTOS: "apps/x/orders" no debe matchear
+// "apps/x/orders-v2/f.ts" (un startsWith textual daría falsos positivos).
 function pathsConflict(a, b) {
-  const na = a.replace(/\\/g, '/'); const nb = b.replace(/\\/g, '/');
-  return na === nb || na.startsWith(nb) || nb.startsWith(na);
+  const seg = (p) => String(p).replace(/\\/g, '/').split('/').filter(Boolean);
+  const A = seg(a); const B = seg(b);
+  if (!A.length || !B.length) return false;
+  const n = Math.min(A.length, B.length);
+  for (let i = 0; i < n; i++) if (A[i] !== B[i]) return false;
+  return true;
 }
 function isProtected(config, task) {
   const paths = config.protectedPaths || [];
@@ -172,7 +179,7 @@ function workOrderText(task, ctx) {
     `id: ${task.id}`,
     `título: ${task.title}`,
     `riesgo: ${task.risk}`,
-    `contrato (Anexo): ${task.contractRef}`,
+    `contrato/spec: ${task.contractRef ?? 'N/A'}`,
     `targets de gate: ${(task.targets || []).join(', ')}`,
     ``,
     `SCOPE (solo estos archivos):`,
@@ -239,7 +246,15 @@ function shouldMetaReview(config, highRisk, rng = Math.random) {
 
 /* ─────────────────────────────── runtime ───────────────────────────────────── */
 
-const EXHAUST_RE = /(quota|insufficient|rate.?limit|\b429\b|\b402\b|\b401\b|unauthor|no credits|billing|exhaust|payment required)/i;
+// Señales de cuenta agotada, a nivel TRANSPORTE (stderr / errorMessage).
+// Deliberadamente NO se aplica al texto del modelo: un author que trabaja en
+// pagos escribe "402", "quota" o "insufficient funds" como parte del código, y
+// eso no significa que la key se haya agotado (antes marcaba la cuenta muerta).
+const EXHAUST_RE = /(quota (exceeded|exhausted|remaining)|insufficient (balance|credit|credits|quota)|rate.?limit(ed| exceeded)?|too many requests|\b(401|402|429)\b|unauthoriz|invalid api key|no credits|credit balance is too low|billing (issue|error)|payment required|exhausted)/i;
+
+function detectExhausted({ stderr = '', errorMessage = null } = {}) {
+  return EXHAUST_RE.test(`${stderr ?? ''}\n${errorMessage ?? ''}`);
+}
 
 function resolvePi(config) {
   const candidates = [process.env.ORCHESTRA_PI_CLI, config.piCli].filter(Boolean);
@@ -274,8 +289,17 @@ function runProcess(command, args, { cwd = ROOT, env, shell = false, onLine, tim
   });
 }
 
-function stubModel({ role, prompt }) {
+function stubModel({ role, prompt, cwd }) {
   const usage = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0, cost: 0.0001, turns: 1 };
+  if (role === 'author') {
+    // ORCHESTRA_STUB_TOUCH=1 hace que el author stub deje un cambio real (archivo
+    // único), para que el smoke test ejercite commit + merge de punta a punta.
+    if (process.env.ORCHESTRA_STUB_TOUCH && cwd) {
+      const name = `stub-change-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.txt`;
+      try { fs.writeFileSync(path.join(cwd, name), `cambio del author stub @ ${now()}\n`); } catch { /* readonly */ }
+    }
+    return { code: 0, text: '## RESUMEN\nstub author', usage };
+  }
   if (role === 'orchestrator' || role === 'judge') {
     if (/aprob|audit|overturn|rechaz/i.test(prompt)) return { code: 0, text: '{"decision":"APPROVE","commitMessage":"chore(v2): stub","reason":"self-test"}', usage };
     return { code: 0, text: '{"stateMarkdown":"# STATE\\n(stub)","nextTask":"v2-self-test","workOrder":"stub"}', usage };
@@ -323,8 +347,7 @@ async function runPi(ctx) {
     const safeArgs = args.map((a, i) => (args[i - 1] === '--api-key' ? '***' : a));
     fs.writeFileSync(logFile, JSON.stringify({ model, code: res.code, usage, stopReason, errorMessage, stderr: res.err, text, args: safeArgs }, null, 2));
   }
-  const haystack = `${res.err}\n${errorMessage ?? ''}\n${text}`;
-  return { code: res.code, text, usage, stopReason, errorMessage, stderr: res.err, spawnError: res.spawnError, exhausted: EXHAUST_RE.test(haystack), modelUsed };
+  return { code: res.code, text, usage, stopReason, errorMessage, stderr: res.err, spawnError: res.spawnError, exhausted: detectExhausted({ stderr: res.err, errorMessage }), modelUsed };
 }
 
 async function callModel(ctx) {
@@ -332,11 +355,11 @@ async function callModel(ctx) {
   return runPi(ctx);
 }
 
-async function runGate(commands, logFile, cwd) {
+async function runGate(commands, logFile, cwd, timeoutMs = 20 * 60 * 1000) {
   const results = []; let ok = true; let logText = `# gate ${now()}\n`;
   for (const cmd of commands) {
     log(`  gate: ${cmd}`);
-    const r = await runProcess(cmd, [], { shell: true, cwd, timeoutMs: 20 * 60 * 1000 });
+    const r = await runProcess(cmd, [], { shell: true, cwd, timeoutMs });
     const passed = r.code === 0;
     results.push({ command: cmd, code: r.code, passed });
     logText += `\n$ ${cmd}\n[exit ${r.code}]\n${r.out}\n${r.err}\n`;
@@ -372,13 +395,33 @@ async function changedFiles(cwd) {
 
 /* ───────────────────────────── worktrees ───────────────────────────────────── */
 
-function linkWorktreeDeps(wtDir) {
-  const targets = [
-    path.join(ROOT, 'node_modules'),
-    path.join(ROOT, 'packages', 'shared', 'node_modules'),
-    ...safeReaddir(path.join(ROOT, 'apps')).map((e) => path.join(ROOT, 'apps', e.name, 'node_modules')),
-  ];
-  for (const target of targets) {
+// Worktrees creados en esta corrida, para limpiarlos si llega SIGINT/SIGTERM.
+const ACTIVE_WORKTREES = new Map();
+
+// Patrones de dependencias a linkear en el worktree (relativos a ROOT, `*` = un nivel).
+// Default genérico; se sobreescribe con `worktrees.link` en config.json.
+function resolveLinkTargets(config) {
+  const spec = config?.worktrees?.link;
+  const patterns = Array.isArray(spec) && spec.length ? spec : ['node_modules', 'packages/*/node_modules', 'apps/*/node_modules'];
+  const out = [];
+  for (const raw of patterns) {
+    const norm = String(raw).replace(/\\/g, '/').replace(/^\.?\//, '');
+    if (!norm) continue;
+    const parts = norm.split('/');
+    const star = parts.indexOf('*');
+    if (star === -1) { out.push(path.join(ROOT, ...parts)); continue; }
+    const base = path.join(ROOT, ...parts.slice(0, star));
+    const rest = parts.slice(star + 1);
+    for (const e of safeReaddir(base)) {
+      if (!e.isDirectory()) continue;
+      out.push(path.join(base, e.name, ...rest));
+    }
+  }
+  return out;
+}
+
+function linkWorktreeDeps(wtDir, config) {
+  for (const target of resolveLinkTargets(config)) {
     if (!exists(target)) continue;
     const linkPath = path.join(wtDir, path.relative(ROOT, target));
     if (exists(linkPath)) continue;
@@ -397,7 +440,8 @@ async function prepareWorktree(config, task) {
   await runProcess('git', ['branch', '-D', branch], {});
   const r = await runProcess('git', ['worktree', 'add', '-b', branch, dir, 'HEAD'], {});
   if (r.code !== 0) { warn(`worktree no creado (${task.id}); uso ROOT. ${r.err.trim()}`); return { dir: ROOT, branch: null, ephemeral: false }; }
-  if (config.worktrees?.linkNodeModules !== false) linkWorktreeDeps(dir);
+  if (config.worktrees?.linkNodeModules !== false) linkWorktreeDeps(dir, config);
+  ACTIVE_WORKTREES.set(task.id, { dir, branch });
   return { dir, branch, ephemeral: true };
 }
 async function removeWorktree(config, task) {
@@ -407,6 +451,33 @@ async function removeWorktree(config, task) {
   // Limpieza: tras integrar, la rama de la tarea ya cumplió su función.
   const branch = `${config.integration?.branchPrefix || 'orchestra/'}${task.id}`;
   await runProcess('git', ['branch', '-D', branch], {});
+  ACTIVE_WORKTREES.delete(task.id);
+}
+
+/**
+ * Ctrl+C / kill: elimina los worktrees que quedaron a medio hacer.
+ * Conserva los de tareas ya aprobadas (hay trabajo válido pendiente de integrar).
+ */
+function installSignalHandlers() {
+  let handling = false;
+  const cleanup = async (sig) => {
+    if (handling) return;
+    handling = true;
+    const code = sig === 'SIGINT' ? 130 : 143;
+    if (!ACTIVE_WORKTREES.size) process.exit(code);
+    warn(`${sig}: limpiando ${ACTIVE_WORKTREES.size} worktree(s) en vuelo`);
+    for (const [id, wt] of ACTIVE_WORKTREES) {
+      const stateFile = path.join(RUNS, id, 'state.json');
+      let approved = false;
+      try { approved = exists(stateFile) && readJson(stateFile).status === 'approved'; } catch { /* estado corrupto: limpiar */ }
+      if (approved) { warn(`  se conserva ${wt.dir} (${id} aprobada, pendiente de integración)`); continue; }
+      await runProcess('git', ['worktree', 'remove', '--force', wt.dir], {});
+      await runProcess('git', ['branch', '-D', wt.branch], {});
+      log(`  eliminado worktree de ${id}`);
+    }
+    process.exit(code);
+  };
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { cleanup(sig); });
 }
 
 /* ─────────────────────────────── keys ──────────────────────────────────────── */
@@ -532,7 +603,7 @@ async function runTaskLoop(ctx, task, taskDir) {
     const commands = gateCommands(config, task);
     const gate = ctx.runner === 'stub'
       ? (fs.writeFileSync(path.join(cycleDir, 'gate.log'), `# gate stub (sin ejecución real)\n${commands.join('\n')}\n`), { ok: true, results: [] })
-      : await runGate(commands, path.join(cycleDir, 'gate.log'), ctx.workdir);
+      : await runGate(commands, path.join(cycleDir, 'gate.log'), ctx.workdir, config.gates?.timeoutMs || config.loop?.gateTimeoutMs || 20 * 60 * 1000);
     log(`  gate: ${gate.ok ? 'VERDE' : 'ROJO'}`);
     if (!gate.ok) { state.cycle = cycle; appendJsonl(LEDGER, { ts: now(), task: task.id, cycle, role: 'gate', ok: false }); saveState(); continue; }
 
@@ -599,7 +670,7 @@ async function runTaskLoop(ctx, task, taskDir) {
 
     state.approved = true;
     state.status = 'approved';
-    state.commitMessage = appr.commitMessage || `fix(${task.id.replace(/^p0-|^v2-/, '')}): ${task.title} (Anexo ${task.contractRef || 'v2'})`;
+    state.commitMessage = appr.commitMessage || `fix(${task.id}): ${task.title}`;
     saveState();
     return state;
   }
@@ -702,12 +773,22 @@ async function runModelsCommand(args, config) {
 
   const fmt = (id) => {
     const m = doc.ranked.find((x) => x.id === id);
-    return m ? `${id}${m.matched ? ` (#${m.arenaRank} ${m.score})` : ' (sin score)'} $${m.input}/$${m.output ?? '?'}` : id;
+    if (!m) return `${id} (?)`;
+    const score = m.score != null ? `${m.score}` : '?';
+    const tag = m.source === 'arena' ? `arena #${m.arenaRank} · ${score}`
+      : m.source === 'alias' || m.source === 'suffix' ? `arena #${m.arenaRank} · ${score} vía ${m.arenaSlug}`
+      : m.source === 'override' ? `override · ${score}`
+      : m.source === 'family' ? `≈familia · ${score}`
+      : 'sin score';
+    return `${id} (${tag}) $${m.input}/${m.output ?? '?'}`;
   };
-  log(`catálogo: ${doc.liveCount} vivos | ${doc.counts.matched} con score | ${doc.counts.unmatched} sin score | arena ${doc.counts.arenaRows} filas`);
+  log(`catálogo: ${doc.liveCount} vivos | ${doc.counts.matched} con score | ${doc.counts.unmatched} sin score | ${doc.counts.noCost} sin costo cacheado | arena ${doc.counts.arenaRows} filas`);
   if (doc.liveError) warn(`no se pudo listar el endpoint (se usó el cache de costos): ${doc.liveError}`);
   if (doc.liveOnly?.length) log(`nuevos en el endpoint (sin costo cacheado): ${doc.liveOnly.join(', ')}`);
   if (doc.staleOnly?.length) warn(`en el cache pero ya no en el endpoint: ${doc.staleOnly.join(', ')}`);
+  if (doc.inferred?.length) warn(`score inferido por familia (verificar): ${doc.inferred.join(', ')}`);
+  const sinScore = doc.ranked.filter((x) => x.costKnown && !x.matched).map((x) => x.id);
+  if (sinScore.length) warn(`sin score en arena (quedan al final del pool): ${sinScore.join(', ')}`);
   console.log('\nROTACIÓN RECOMENDADA');
   for (const [label, ids] of [['author', doc.author], ['verifier', doc.verifier], ['fallback', doc.fallback]]) {
     for (let i = 0; i < ids.length; i++) console.log(`  ${(i === 0 ? label : '').padEnd(10)} ${fmt(ids[i])}`);
@@ -724,6 +805,79 @@ async function runModelsCommand(args, config) {
 }
 
 /* ───────────────────────────── self-test ───────────────────────────────────── */
+
+/* ───────────────────────────── report ────────────────────────────── */
+
+function readLedger() {
+  if (!exists(LEDGER)) return [];
+  const out = [];
+  for (const line of fs.readFileSync(LEDGER, 'utf8').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch { /* línea parcial por interrupción */ }
+  }
+  return out;
+}
+
+/** Agrega el ledger: costo/llamadas por modelo, rol y tarea. */
+function summarizeLedger(entries) {
+  const byModel = {}; const byRole = {}; const byTask = {};
+  let cost = 0; let turns = 0; let exhausted = 0; let gateFails = 0;
+  for (const e of entries || []) {
+    cost += e.cost || 0;
+    turns += e.turns || 0;
+    if (e.exhausted) exhausted++;
+    if (e.role === 'gate' && e.ok === false) gateFails++;
+    if (e.model) {
+      if (!byModel[e.model]) byModel[e.model] = { calls: 0, cost: 0 };
+      byModel[e.model].calls++; byModel[e.model].cost += e.cost || 0;
+    }
+    if (e.role) {
+      if (!byRole[e.role]) byRole[e.role] = { calls: 0, cost: 0 };
+      byRole[e.role].calls++; byRole[e.role].cost += e.cost || 0;
+    }
+    if (e.task) {
+      if (!byTask[e.task]) byTask[e.task] = { calls: 0, cost: 0, authorCycles: 0 };
+      byTask[e.task].calls++; byTask[e.task].cost += e.cost || 0;
+      if (e.role === 'author') byTask[e.task].authorCycles++;
+    }
+  }
+  return { events: (entries || []).length, cost: Number(cost.toFixed(6)), turns, exhausted, gateFails, byModel, byRole, byTask };
+}
+
+function taskStates() {
+  const states = {};
+  for (const e of safeReaddir(RUNS)) {
+    if (!e.isDirectory()) continue;
+    const p = path.join(RUNS, e.name, 'state.json');
+    if (!exists(p)) continue;
+    try { const s = readJson(p); states[e.name] = { status: s.status, spentUsd: s.spentUsd || 0, cycle: s.cycle || 0 }; } catch { /* ignorar */ }
+  }
+  return states;
+}
+
+function reportCommand(args) {
+  const summary = summarizeLedger(readLedger());
+  const doc = { generatedAt: now(), ...summary, states: taskStates() };
+  if (args.json) { console.log(JSON.stringify(doc, null, 2)); return doc; }
+
+  console.log('RESUMEN (.orchestra/ledger.jsonl)');
+  console.log(`  eventos ${summary.events} | costo $${summary.cost.toFixed(4)} | turns ${summary.turns} | keys agotadas ${summary.exhausted} | gates rojos ${summary.gateFails}`);
+  const table = (title, obj, extra) => {
+    const keys = Object.keys(obj || {});
+    if (!keys.length) return;
+    console.log(`\n  ${title}`);
+    for (const k of keys.sort((a, b) => obj[b].cost - obj[a].cost)) {
+      const v = obj[k];
+      console.log(`    ${k.padEnd(30)} ${String(v.calls ?? '').padStart(4)} llamadas  $${(v.cost || 0).toFixed(4)}${extra ? '  ' + extra(k, v) : ''}`);
+    }
+  };
+  table('por rol', summary.byRole);
+  table('por modelo', summary.byModel);
+  table('por tarea', summary.byTask, (k) => (doc.states[k] ? `estado=${doc.states[k].status} ciclos=${doc.states[k].cycle}` : ''));
+  const pending = Object.entries(doc.states).filter(([, s]) => s.status !== 'approved');
+  if (pending.length) console.log(`\n  sin aprobar: ${pending.map(([k, s]) => `${k} (${s.status})`).join(', ')}`);
+  return doc;
+}
 
 function selfTest() {
   const t = [];
@@ -742,6 +896,13 @@ function selfTest() {
   eq('stub orchestrator APPROVE', JSON.parse(stubModel({ role: 'orchestrator', prompt: 'Aprobá' }).text).decision === 'APPROVE');
   eq('stub verifier PASS', JSON.parse(stubModel({ role: 'verifier', prompt: '' }).text).verdict === 'PASS');
   eq('pathsConflict raiz', pathsConflict('apps/x/', 'apps/x/y.ts') === true);
+  eq('pathsConflict por segmentos (no falso positivo)', pathsConflict('apps/backend/src/orders', 'apps/backend/src/orders-v2/x.ts') === false);
+  eq('pathsConflict prefijo real', pathsConflict('apps/backend/src/orders', 'apps/backend/src/orders/x.ts') === true);
+  eq('pathsConflict distinto', pathsConflict('apps/mobile', 'apps/backend') === false);
+  eq('detectExhausted ignora texto del modelo', detectExhausted({ stderr: '', text: 'el endpoint devuelve 402 Payment Required si no hay saldo' }) === false);
+  eq('detectExhausted detecta 429 en stderr', detectExhausted({ stderr: 'HTTP 429 Too Many Requests' }) === true);
+  eq('detectExhausted detecta quota en errorMessage', detectExhausted({ errorMessage: 'Error: quota exceeded for this key' }) === true);
+  eq('detectExhausted código de pagos no agota', detectExhausted({ stderr: 'ok', text: 'InsufficientFundsError: 402' }) === false);
   eq('isProtectedChange detecta diff', isProtectedChange({ protectedPaths: ['apps/backend/prisma/migrations/'] }, ['apps/backend/prisma/migrations/001/x.sql']) === true);
   eq('isProtectedChange ignora ajeno', isProtectedChange({ protectedPaths: ['apps/backend/'] }, ['apps/mobile/App.tsx']) === false);
   eq('recordUsage acumula', (() => { const s = {}; recordUsage(s, { cost: 0.5, input: 10, output: 5 }); recordUsage(s, { cost: 0.25, input: 2, output: 1 }); return Math.abs(s.spentUsd - 0.75) < 1e-9 && s.tokens.input === 12 && s.tokens.output === 6; })());
@@ -779,6 +940,40 @@ function selfTest() {
   eq('rankModels escalation top', rk.escalationAuthor === 'top' && rk.escalationVerifier === 'mid');
   eq('rankModels fallback barato', rk.fallback[0] === 'cheap2');
   eq('configPatchFromRanking', (() => { const p = configPatchFromRanking(rk); return p.roles.author.length === 2 && p.fallback.models[0] === 'cheap2'; })());
+  eq('modelFamily', modelFamily('mimo-v2.6-flash') === 'mimo' && modelFamily('qwen3.8-flash') === 'qwen');
+  eq('bestArenaMatch alias', bestArenaMatch('qwen3.8-flash', [{ rank: 9, slug: 'qwen3.8-flash-next', score: 1636 }], { 'qwen3.8-flash': ['qwen3.8-flash-next'] })?.source === 'alias');
+  eq('bestArenaMatch sin alias', bestArenaMatch('qwen3.8-max', [{ rank: 4, slug: 'qwen3.8-max', score: 1671 }], {})?.source === 'arena');
+  eq('idVariants quita sufijos no semánticos', idVariants('muse-spark-1.2-contributor').join(',') === 'muse-spark-1.2-contributor,muse-spark-1.2');
+  eq('idVariants no quita sufijos reales', idVariants('qwen3.8-flash').join(',') === 'qwen3.8-flash');
+  eq('bestArenaMatch por sufijo -contributor', (() => {
+    const m = bestArenaMatch('muse-spark-1.2-contributor', [{ rank: 35, slug: 'muse-spark-1.2 (xHigh)', score: 1534 }], {});
+    return m?.score === 1534 && m.source === 'suffix';
+  })());
+  const rkFam = rankModels(
+    [
+      { id: 'mimo-v2.5', cost: { input: 0.14, output: 0.28 }, contextWindow: 1000000 },
+      { id: 'mimo-v2.6-flash', cost: { input: 0.14, output: 0.28 }, contextWindow: 1000000 },
+      { id: 'mimo-v2.9-max', cost: { input: 5, output: 15 }, contextWindow: 1000000 },
+    ],
+    [{ rank: 1, slug: 'mimo-v2.5', score: 1437 }, { rank: 2, slug: 'mimo-v2.9-max', score: 1700 }],
+    { workerMaxInputCost: 0.5, workersPerRole: 2 },
+  );
+  const famEntry = rkFam.ranked.find((x) => x.id === 'mimo-v2.6-flash');
+  eq('family hereda del hermano de costo parecido', famEntry?.source === 'family' && famEntry.score === Math.round(1437 * 0.95));
+  const rkOv = rankModels([{ id: 'nuevo', cost: { input: 0.1, output: 0.2 }, contextWindow: 1000000 }], [],
+    { scoreOverrides: { nuevo: { score: 1600, note: 'x' } }, workerMaxInputCost: 0.5, workersPerRole: 1 });
+  eq('override manual gana', rkOv.ranked[0].source === 'override' && rkOv.ranked[0].score === 1600);
+  const sum = summarizeLedger([
+    { task: 't1', role: 'author', model: 'm1', cost: 0.1, turns: 3 },
+    { task: 't1', role: 'verifier', model: 'm2', cost: 0.2, turns: 2 },
+    { task: 't1', role: 'gate', ok: false },
+    { task: 't2', role: 'author', model: 'm1', cost: 0.05, turns: 1, exhausted: true },
+  ]);
+  eq('summarizeLedger totales', sum.events === 4 && Math.abs(sum.cost - 0.35) < 1e-9 && sum.turns === 6 && sum.gateFails === 1 && sum.exhausted === 1);
+  eq('summarizeLedger por modelo', sum.byModel.m1.calls === 2 && sum.byRole.verifier.calls === 1 && sum.byTask.t1.authorCycles === 1);
+  eq('summarizeLedger vacío', summarizeLedger([]).events === 0 && summarizeLedger(null).cost === 0);
+  eq('resolveLinkTargets default', resolveLinkTargets({}).length >= 1);
+  eq('resolveLinkTargets custom', (() => { const t = resolveLinkTargets({ worktrees: { link: ['node_modules'] } }); return t.length === 1 && t[0].endsWith('node_modules'); })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -798,12 +993,13 @@ async function main() {
   orchestra --keys-status
   orchestra models [--apply] [--json] [--refresh]
                                     # ranking de modelos (opencode + arena.ai)
+  orchestra report [--json]         # costos y veredictos desde ledger.jsonl
   orchestra --plan
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
 Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status
-       models [--apply] [--json] --stub`);
+       models [--apply] [--json] --stub  report [--json]`);
     return;
   }
   if (args.selfTest) return selfTest();
@@ -816,6 +1012,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
 
   if (args.models) { if (args.json) QUIET = true; await runModelsCommand(args, config); return; }
+  if (args.report) { if (args.json) QUIET = true; reportCommand(args); return; }
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
 
   const runner = args.stub || process.env.ORCHESTRA_RUNNER === 'stub' ? 'stub' : 'real';
@@ -864,6 +1061,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (!selected.length) { log('no hay tareas pendientes'); return; }
 
   const limit = args.noWorktrees ? 1 : (args.workers || config.loop.maxParallelTasks || 1);
+  installSignalHandlers();   // Ctrl+C: limpiar worktrees a medio hacer
   const ctx = { config, pi, runner, keyState: makeKeyState(), workdir: ROOT, taskDir: null, queues: { git: makeQueue(), book: makeQueue() } };
   const results = [];
 

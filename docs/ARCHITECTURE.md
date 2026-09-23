@@ -98,16 +98,28 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **35 casos**):
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **55 casos**):
 `extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
 `workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
 `budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`,
-`matchModel`, `rankModels`, `configPatchFromRanking`.
+`matchModel`, `rankModels`, `configPatchFromRanking`, `idVariants`, `bestArenaMatch`,
+`summarizeLedger`, `resolveLinkTargets`, `detectExhausted`.
 **Si agregás lógica pura, agregá su caso.** El self-test ya cazó bugs reales
 (`extractLastJson` tomaba objetos anidados).
 
 Además, `--stub` (`ORCHESTRA_RUNNER=stub`) corre el loop completo con `stubModel`,
 salteando gates y diff reales: sirve para validar el pipeline sin red ni keys en CI.
+
+### tests/smoke.mjs (integración)
+
+`node tests/smoke.mjs` crea un repo git temporal, hace `init` y corre el ciclo completo con
+`--stub` + `ORCHESTRA_STUB_TOUCH=1` (el author stub deja un cambio real en el worktree),
+y verifica **20 invariantes**: dry-run no muta el backlog, ruta protegida sin/con `--yes`,
+commit + merge reales, paralelismo (`--all --workers 2`), limpieza de worktrees y ramas,
+ledger, `report --json`.
+
+CI (`.github/workflows/ci.yml`) corre self-test + smoke en ubuntu/windows × node 20/22.
+`npm test` corre ambos.
 
 ## 9. Extensión `/orchestra`
 
@@ -124,10 +136,20 @@ rotación, en vez de hardcodear nombres en `config.json`:
 2. **Costos**: `~/.pi/agent/models-store.json` (fuente local autoritativa); se unen ambos y
    se marcan los modelos que sólo están en el endpoint (sin costo cacheado).
 3. **Score**: se scrapea `arena.ai/leaderboard/code/webdev` (`lib/leaderboard.mjs`, portado
-   de `aoalejo/opencode_mcp`). El match maneja sufijos de esfuerzo (`-max`, `-high`, …).
+   de `aoalejo/opencode_mcp`). Cuatro fuentes, en orden de confianza (campo `source`):
+   - `arena` — el id matchea directo un slug del leaderboard.
+   - `alias` — el id figura en arena con otro slug (`models.aliases`).
+     Ej: `qwen3.8-flash` se publica como `qwen3.8-flash-next` (#9, 1636).
+   - `suffix` — se le quitan al id sufijos no semánticos (`-contributor`, `-exp`,
+     `-instruct`, …) y así matchea. Ej: `muse-spark-1.3-contributor` → `muse-spark-1.3 (xHigh)`.
+   - `override` — score fijado a mano en `models.scoreOverrides` para un SKU nuevo que arena
+     aún no rankea. Ej: `mimo-v2.6-flash` ≈ `deepseek-v4.1-flash`.
+   - `family` — último recurso: hereda el score del hermano de **costo más parecido** de la
+     misma familia × 0.95, y queda marcado `inferred` (se avisa por warn para verificarlo).
 4. **Pools** (`lib/rank.mjs`): `author`/`verifier` = mejores baratos (`workerMaxInputCost`);
    `verifier` rota la lista del `author` para nunca coincidir en el mismo índice; `fallback` =
    siguientes baratos; `escalation*` = top de score.
+   Dentro de `scoreTolerancePct` (1%) gana el **más barato**: 0.5% de ventaja no justifica 5x de precio.
 
 ```bash
 orchestra models            # muestra el ranking, no escribe nada
@@ -135,10 +157,19 @@ orchestra models --apply    # escribe roles/fallback en config.json (backup .bak
 orchestra models --json     # salida máquina
 ```
 
-Si `models.rankings.autoApply` es `true`, en cada corrida real se refresca (si el archivo
-`.orchestra/models.generated.json` supera `maxAgeDays`) y se aplican los pools solos.
+Si `models.rankings.autoApply` es `true` (default), en cada corrida real se refresca (si el
+archivo `.orchestra/models.generated.json` supera `maxAgeDays`) y se aplican los pools solos,
+con backup en `config.json.bak`. Ponelo en `false` si querés revisar antes de aplicar.
 
-## 11. Cómo extender
+## 11. Report y señales
+
+- `orchestra report [--json]` agrega `.orchestra/ledger.jsonl`: costo total, llamadas y costo
+  por **rol**, por **modelo** y por **tarea**, más gates rojos, keys agotadas y el estado de
+  cada corrida (`runs/<task>/state.json`). Es la versión CLI del "dashboard" del roadmap.
+- **Señales**: `SIGINT`/`SIGTERM` eliminan los worktrees que quedaron a medio hacer.
+  Los de tareas ya `approved` se **conservan** (hay trabajo válido pendiente de integrar).
+
+## 12. Cómo extender
 
 - **Nuevo rol**: crear `agents/<rol>.md` + `roles.<rol>` en config + usarlo en el loop.
 - **Nueva estrategia de integración**: hoy sólo `merge-branch`; `integration.strategy` está listo para `patch-apply` u otras.

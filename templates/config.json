@@ -33,7 +33,12 @@
     "highRiskLevels": ["high", "critical"]
   },
 
-  "worktrees": { "enabled": true, "dir": ".orchestra/worktrees", "linkNodeModules": true },
+  "worktrees": {
+    "enabled": true,
+    "dir": ".orchestra/worktrees",
+    "linkNodeModules": true,
+    "link": ["node_modules", "packages/*/node_modules", "apps/*/node_modules"]
+  },
 
   "integration": {
     "strategy": "merge-branch",
@@ -52,24 +57,32 @@
     "workersPerRole": 3,
     "fallbackCount": 3,
     "minContextWindow": 200000,
+    "scoreTolerancePct": 0.01,
+    "familyInference": true,
     "arenaUrl": "https://arena.ai/leaderboard/code/webdev",
-    "rankings": { "enabled": true, "maxAgeDays": 7, "autoApply": false }
+    "aliases": {
+      "$comment": "id de opencode-go -> slug(s) con los que figura en arena.ai.",
+      "qwen3.8-flash": ["qwen3.8-flash-next", "qwen3.8-flash"]
+    },
+    "scoreOverrides": {
+      "$comment": "Score fijado a mano para SKUs nuevos que arena aún no rankea. Revisar periódicamente y borrar cuando aparezcan en el leaderboard.",
+      "mimo-v2.6-flash": { "score": 1616, "note": "SKU nuevo; ≈ deepseek-v4.1-flash según mantenedor (2026-09)" }
+    },
+    "rankings": { "enabled": true, "maxAgeDays": 7, "autoApply": true }
   },
 
   "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
 
   "gates": {
-    "$comment": "Comandos que se corren desde la raíz del proyecto (o el worktree). Agregá/quita targets según tu stack.",
-    "backend": ["npm --prefix apps/backend run lint", "npm --prefix apps/backend run build", "npm --prefix apps/backend test -- --runInBand --passWithNoTests"],
-    "mobile": ["yarn --cwd apps/mobile typecheck", "yarn --cwd apps/mobile lint", "yarn --cwd apps/mobile test --ci"],
-    "web": ["npm --prefix apps/web run build"],
-    "backoffice": ["npm --prefix apps/backoffice run lint", "npm --prefix apps/backoffice run build"]
+    "$comment": "Comandos que se corren desde la raíz del proyecto (o el worktree). Reemplazá los targets por los de tu stack; cada tarea los referencia en 'targets'. Las claves que no son arrays ($comment, timeoutMs) se ignoran.",
+    "timeoutMs": 1200000,
+    "example": ["npm run lint", "npm run build", "npm test -- --run"]
   },
 
   "protectedPaths": [
-    "apps/backend/prisma/migrations/",
-    "apps/backend/src/paisanitos/orders/",
-    "apps/backend/src/paisanitos/auth/"
+    "migrations/",
+    "src/auth/",
+    "src/payments/"
   ],
 
   "commit": {

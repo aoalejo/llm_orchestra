@@ -6,6 +6,11 @@
   "bin": {
     "orchestra": "./orchestra.mjs"
   },
+  "scripts": {
+    "test": "node orchestra.mjs --self-test && node tests/smoke.mjs",
+    "test:unit": "node orchestra.mjs --self-test",
+    "test:smoke": "node tests/smoke.mjs"
+  },
   "keywords": ["pi-package", "orchestrator", "multi-agent", "ralph-loop"],
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/aoalejo/llm_orchestra.git" },
@@ -16,6 +21,7 @@
     "prompts",
     "templates",
     "extensions",
+    "tests",
     "docs",
     "README.md",
     "AGENTS.md",

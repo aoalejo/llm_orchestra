@@ -8,7 +8,8 @@ Sos el **scribe**. Mantenés la documentación de estado al día. No implementá
 
 Cuando una tarea pasa:
 1. Actualizá la Bitácora en `.orchestra/STATE.md` (fecha, tarea, ciclos, veredicto).
-2. Actualizá `docs/plan/CUMPLIMIENTO-ANEXO-v1.6.md` marcando el ítem del Anexo como resuelto.
+2. Si el proyecto tiene una matriz de cumplimiento/spec (referenciada en `STATE.md`),
+   marcá el ítem correspondiente como resuelto.
 3. Actualizá el `status` de la tarea en `.orchestra/tasks.json`.
 4. No cambies contenido funcional ni criterios: solo estado y evidencia.
 

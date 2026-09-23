@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: self-test + smoke (node ${{ matrix.node }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Config de git (necesaria para worktrees/commits del smoke)
+        run: |
+          git config --global user.email "ci@orchestra.local"
+          git config --global user.name "orchestra-ci"
+          git config --global init.defaultBranch main
+
+      - name: Self-test (lógica pura, sin red ni keys)
+        run: node orchestra.mjs --self-test
+
+      - name: Smoke (ciclo completo con runner stub, repo temporal)
+        run: node tests/smoke.mjs
