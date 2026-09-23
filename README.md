@@ -10,6 +10,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 
 - **El orquestador es el chat** (vos): decide, despacha work orders y aprueba. No hay una capa
   de management interna; los workers corren el ciclo completo y vuelven con un **resumen compacto**.
+- **Tools de pi** (`orchestra_scout`, `orchestra_dispatch`, `orchestra_approve`, `orchestra_reject`,
+  `orchestra_status`, `orchestra_models`, `orchestra_report`): el chat despacha **sin salir de la
+  conversación**; también están los subcomandos CLI equivalentes.
 - **Workers baratos** rotando (default `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash`),
   elegidos por datos con `orchestra models`.
 - **Verificación adversa**: un modelo distinto al autor intenta *falsar*.

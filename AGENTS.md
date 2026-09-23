@@ -80,7 +80,7 @@ Reglas duras:
 | `agents/*.md` | Prompts de rol (orchestrator, author, verifier, security-reviewer, scout, scribe, merge-agent). |
 | `prompts/*.md` | Prompt templates de pi (`/ralph-cycle`, `/p0-critical`). |
 | `templates/*` | Plantillas que usa `orchestra init`. |
-| `extensions/orchestra.ts` | Comando `/orchestra` dentro de pi. |
+| `extensions/orchestra.ts` | Comando `/orchestra` + **tools** (`orchestra_scout`, `orchestra_dispatch`, `orchestra_approve`, `orchestra_reject`, `orchestra_status`, `orchestra_models`, `orchestra_report`). |
 | `tests/smoke.mjs` | Integración del ciclo completo con runner stub (repo git temporal). |
 | `.github/workflows/ci.yml` | CI: self-test + smoke en ubuntu/windows × node 20/22. |
 | `docs/` | Documentación profunda (ver abajo). |

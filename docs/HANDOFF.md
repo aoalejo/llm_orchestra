@@ -73,6 +73,10 @@
 30. **Worktree reuse**: `approve`/resume reusa el worktree existente en vez de recrearlo, así
     no se pierden los cambios del autor entre `dispatch` y `approve`.
 31. Se quitó `agents/orchestrator.md`; `roles.orchestrator` queda sólo para `--keys-check`.
+32. **Tools de pi** (`extensions/orchestra.ts`): `orchestra_scout`, `orchestra_dispatch`,
+    `orchestra_approve`, `orchestra_reject`, `orchestra_status`, `orchestra_models`,
+    `orchestra_report`. El chat despacha sin salir de la conversación; las tools invocan el
+    driver con `--json` y devuelven sólo el resumen compacto.
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

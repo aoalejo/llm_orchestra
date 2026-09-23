@@ -2,22 +2,31 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /**
- * Extensión de pi que expone el Lean Orchestrator como comando `/orchestra`.
+ * Extensión de pi que expone el Lean Orchestrator.
  *
- *   /orchestra init
- *   /orchestra --keys-status
- *   /orchestra --plan
- *   /orchestra --task <id> --dry-run
+ * Comando:
+ *   /orchestra <args>            (init / models / report / --clean / --self-test / ...)
  *
- * El runtime real es `orchestra.mjs` (este paquete); la extensión sólo lo invoca.
+ * Tools (el orquestador es el chat):
+ *   orchestra_scout     — recon barato del codebase (no gasta el contexto del chat)
+ *   orchestra_dispatch  — corre 1..N work orders en paralelo y devuelve un resumen compacto
+ *   orchestra_approve   — aprueba e integra una tarea en `needs-approval`
+ *   orchestra_reject    — descarta una tarea
+ *   orchestra_status    — estado de las tareas
+ *   orchestra_models    — ranking/rotación de modelos
+ *   orchestra_report    — costo/uso desde el ledger
+ *
+ * Todo delega en `orchestra.mjs` (este paquete); la extensión sólo lo invoca con --json
+ * y devuelve el JSON compacto al modelo.
  */
 
 const DRIVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "orchestra.mjs");
 
-function runDriver(argv: string[], cwd: string): Promise<number> {
+function runDriver(argv: string[], cwd: string, signal?: AbortSignal): Promise<number> {
   return new Promise((resolve) => {
     try {
       const child = spawn(process.execPath, [DRIVER, ...argv], { cwd, stdio: "inherit" });
@@ -29,9 +38,43 @@ function runDriver(argv: string[], cwd: string): Promise<number> {
   });
 }
 
+/** Invoca el driver con --json, captura stdout y parsea el JSON. */
+function runDriverJson(argv: string[], cwd: string, signal?: AbortSignal): Promise<{ data: any; raw: string; stderr: string; code: number }> {
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn(process.execPath, [DRIVER, ...argv, "--json"], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (e) {
+      return reject(e);
+    }
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (d) => { out += d.toString(); });
+    child.stderr.on("data", (d) => { err += d.toString(); });
+    child.on("error", (e) => reject(e));
+    const onAbort = () => { try { child.kill("SIGKILL"); } catch { /* noop */ } };
+    if (signal) signal.addEventListener("abort", onAbort, { once: true });
+    child.on("close", (code) => {
+      if (signal) signal.removeEventListener("abort", onAbort);
+      const text = out.trim();
+      const start = text.indexOf("{");
+      if (!text || start === -1) {
+        return reject(new Error(`orchestra ${argv[0]} exit ${code}: ${(text + "\n" + err).slice(-800)}`));
+      }
+      try {
+        resolve({ data: JSON.parse(text.slice(start)), raw: text, stderr: err, code: code ?? 0 });
+      } catch {
+        reject(new Error(`salida no-JSON de orchestra ${argv[0]} (exit ${code}): ${(text + "\n" + err).slice(-800)}`));
+      }
+    });
+  });
+}
+
+const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
+
 export default function orchestraExtension(pi: ExtensionAPI) {
   pi.registerCommand("orchestra", {
-    description: "Lean Orchestrator: init / plan / task / status (multi-modelo)",
+    description: "Lean Orchestrator: init / models / report / --clean / --self-test (multi-modelo)",
     getArgumentCompletions: (prefix) => {
       const options = ["init", "models", "models --apply", "report", "scout", "dispatch", "approve", "reject", "status", "--clean", "--plan", "--keys-status", "--keys-check", "--self-test", "--all", "--stub", "--no-worktrees", "--task ", "--help"];
       const filtered = options.filter((o) => o.startsWith(prefix));
@@ -42,6 +85,161 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       const argv = args.trim() ? args.trim().split(/\s+/) : ["--keys-status"];
       const code = await runDriver(argv, cwd);
       ctx.ui.notify(`orchestra ${argv.join(" ")} → exit ${code}`, code === 0 ? "info" : "error");
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_scout",
+    label: "Orchestra Scout",
+    description: "Reconocimiento barato del codebase con un modelo worker. Devuelve un mapa comprimido (path:line — descripción) sin gastar el contexto del chat.",
+    promptSnippet: "Recon barato del codebase (scout) que no gasta tu contexto",
+    promptGuidelines: ["Use orchestra_scout para reconocer el codebase antes de despachar trabajo pesado."],
+    parameters: Type.Object({
+      query: Type.String({ description: "Qué investigar (en lenguaje natural)" }),
+      task: Type.Optional(Type.String({ description: "id de tarea existente, para usar su acceptance/scope" })),
+      scope: Type.Optional(Type.Array(Type.String(), { description: "rutas/globs a priorizar" })),
+    }),
+    async execute(_id, params, signal, onUpdate, ctx) {
+      onUpdate?.(text(`scout: ${params.query}`));
+      const argv = ["scout", "--query", params.query];
+      if (params.task) argv.push("--task", params.task);
+      if (params.scope?.length) argv.push("--scope", params.scope.join(","));
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      return { ...text(data.map || "(sin mapa)"), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_dispatch",
+    label: "Orchestra Dispatch",
+    description: "Corre 1..N work orders disjuntos en paralelo (worktrees + autor→gate→verifier→rondas con modelos baratos) y devuelve un resumen compacto por orden. Si no se pide commit, quedan en needs-approval.",
+    promptSnippet: "Despachar work orders al loop (autor→gate→verifier→rondas) en paralelo",
+    promptGuidelines: [
+      "Use orchestra_dispatch para ejecutar trabajo: pasá work orders con goal + acceptance + scope.",
+      "Use orchestra_dispatch con commit:false (default) para revisar antes de integrar, y orchestra_approve para commitear.",
+    ],
+    parameters: Type.Object({
+      orders: Type.Array(
+        Type.Object({
+          id: Type.Optional(Type.String()),
+          taskId: Type.Optional(Type.String({ description: "usar/afinar una tarea existente de tasks.json" })),
+          goal: Type.String({ description: "qué hay que lograr" }),
+          acceptance: Type.Array(Type.String(), { description: "criterios verificables (obligatorio)" }),
+          scope: Type.Optional(Type.Array(Type.String(), { description: "archivos/globs que puede tocar" })),
+          targets: Type.Optional(Type.Array(Type.String(), { description: "targets de gate" })),
+          risk: Type.Optional(Type.String({ description: "low|medium|high|critical" })),
+        }),
+      ),
+      workers: Type.Optional(Type.Number({ description: "parallelismo (default loop.maxParallelTasks)" })),
+      commit: Type.Optional(Type.Boolean({ description: "auto-aprobar e integrar (default false = needs-approval)" })),
+      yes: Type.Optional(Type.Boolean({ description: "aprobar rutas protegidas" })),
+      dryRun: Type.Optional(Type.Boolean()),
+      decisions: Type.Optional(Type.String({ description: "JSON de decisiones, ej. {\"keys\":\"use_orchestrator\"}" })),
+    }),
+    async execute(_id, params, signal, onUpdate, ctx) {
+      const argv = ["dispatch"];
+      for (const o of params.orders) argv.push("--order", JSON.stringify(o));
+      if (params.workers) argv.push("--workers", String(params.workers));
+      if (params.commit) argv.push("--commit");
+      if (params.yes) argv.push("--yes");
+      if (params.dryRun) argv.push("--dry-run");
+      if (params.decisions) argv.push("--decisions", params.decisions);
+      onUpdate?.(text(`despachando ${params.orders.length} orden(es)...`));
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      const lines = (data.results || []).map((r: any) => {
+        const mark = r.approved ? "✓" : r.status === "needs-approval" ? "⏳" : r.status === "needs-decision" ? "❓" : "✗";
+        return `${mark} ${r.id}: ${r.status}${r.verdict ? ` ${r.verdict}` : ""} $${r.cost}${r.diff ? ` diff=${r.diff}` : ""}`;
+      });
+      const tail = data.status === "needs-attention"
+        ? "Usá orchestra_approve (o orchestra_reject) para cada tarea pendiente."
+        : "Todo integrado.";
+      return { ...text([`dispatch ${data.status} (costo $${data.cost})`, ...lines, tail].join("\n")), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_approve",
+    label: "Orchestra Approve",
+    description: "Aprueba una tarea en needs-approval y (con commit:true) la integra: commit en el worktree + merge a la rama base.",
+    promptSnippet: "Aprobar e integrar (commit+merge) una tarea del loop",
+    promptGuidelines: ["Use orchestra_approve cuando una tarea esté en needs-approval y el diff te convenza."],
+    parameters: Type.Object({
+      task: Type.String({ description: "id de la tarea" }),
+      commit: Type.Optional(Type.Boolean({ description: "integrar (commit+merge). Default true si no lo pasás" })),
+      yes: Type.Optional(Type.Boolean({ description: "aprobar rutas protegidas" })),
+      message: Type.Optional(Type.String({ description: "mensaje de commit" })),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const argv = ["approve", "--task", params.task];
+      argv.push("--commit");
+      if (params.commit === false) argv.pop();
+      if (params.yes) argv.push("--yes");
+      if (params.message) argv.push("--message", params.message);
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      const integ = data.integration?.ok ? "integrada" : data.integration?.skipped ? "sin integrar (dry-run)" : "no integrada";
+      return { ...text(`aprobada ${data.id}: ${data.status} — ${integ} — $${data.cost}`), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_reject",
+    label: "Orchestra Reject",
+    description: "Rechaza una tarea del loop y limpia su worktree/rama.",
+    parameters: Type.Object({
+      task: Type.String(),
+      reason: Type.Optional(Type.String()),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const argv = ["reject", "--task", params.task];
+      if (params.reason) argv.push("--reason", params.reason);
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      return { ...text(`rechazada ${data.id}${data.reason ? ` — ${data.reason}` : ""}`), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_status",
+    label: "Orchestra Status",
+    description: "Estado compacto de las tareas del loop (tasks.json + state.json: status, ciclos, costo, decisión pendiente).",
+    promptSnippet: "Ver estado de las tareas del loop y decisiones pendientes",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal, _onUpdate, ctx) {
+      const { data } = await runDriverJson(["status"], ctx.cwd, signal);
+      const lines = (data.tasks || []).map((t: any) => `${t.id}: tasks=${t.status} state=${t.state} $${t.cost}${t.decision ? ` decision=${t.decision.reason}` : ""}`);
+      return { ...text(lines.length ? lines.join("\n") : "sin tareas"), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_models",
+    label: "Orchestra Models",
+    description: "Ranking de modelos (catálogo opencode-go + arena.ai) y pools de rotación. Con apply:true escribe los pools en config.json.",
+    parameters: Type.Object({
+      apply: Type.Optional(Type.Boolean({ description: "escribir los pools en config.json (backup .bak)" })),
+      refresh: Type.Optional(Type.Boolean({ description: "forzar refresh aunque no haya vencido" })),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const argv = ["models"];
+      if (params.apply) argv.push("--apply");
+      if (params.refresh) argv.push("--refresh");
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      const t = (label: string, ids: any[]) => `${label}: ${(ids || []).join(", ")}`;
+      return {
+        ...text([t("author", data.author), t("verifier", data.verifier), t("fallback", data.fallback), `escalado: ${data.escalationAuthor} / ${data.escalationVerifier}`, `servicio: ${data.service}`].join("\n")),
+        details: data,
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_report",
+    label: "Orchestra Report",
+    description: "Costo y uso desde el ledger: por rol, por modelo y por tarea.",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal, _onUpdate, ctx) {
+      const { data } = await runDriverJson(["report"], ctx.cwd, signal);
+      const byRole = Object.entries(data.byRole || {}).map(([r, v]: any) => `${r} $${Number(v.cost).toFixed(4)}`).join(", ");
+      return { ...text(`eventos ${data.events} | costo $${Number(data.cost).toFixed(4)} | ${byRole}`), details: data };
     },
   });
 }
