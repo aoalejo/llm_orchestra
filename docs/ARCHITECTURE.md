@@ -80,6 +80,10 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 - Detección de agotamiento: regex sobre stderr/errores (`401/402/429/quota/insufficient/...`).
 - Al quedarse sin keys B: `callOrchestrator` decide (`useOrchestratorKey|useFallbackModels|pause`).
 - `--keys-status` muestra las cuentas enmascaradas.
+- `--keys-check` hace una llamada real mínima por key (modelo barato) y dice
+  cuál responde, cuál está agotada (saldo/límite) y cuánto costó cada una. Útil
+  con varias cuentas rotando: el loop detecta la cuenta muerta recién al usarla
+  (quema un ciclo), este chequeo lo adelanta.
 
 ## 7. Artefactos
 

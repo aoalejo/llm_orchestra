@@ -37,6 +37,7 @@ cd /ruta/al/proyecto
 orchestra init                        # scaffold .orchestra/
 cp .orchestra/env.example .orchestra/.env   # cargar cuentas A y B
 orchestra --keys-status
+orchestra --keys-check    # llamada real por key: cuál responde y cuál está agotada
 orchestra --plan
 orchestra --task <id> --dry-run
 orchestra --task <id> --commit

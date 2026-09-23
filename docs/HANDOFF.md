@@ -74,7 +74,9 @@ Nada de código: sólo **credenciales**.
    # OPENCODE_GO_KEY_ORCHESTRATOR = cuenta A
    # OPENCODE_GO_KEYS             = cuenta(s) B (key1,key2 o ["k1","k2"])
    ```
-2. `orchestra --keys-status` debe mostrar A y B cargadas.
+2. `orchestra --keys-status` debe mostrar A y B cargadas (enmascaradas).
+   `orchestra --keys-check` además prueba cada una con una llamada real y avisa
+   si alguna quedó sin saldo (`insufficient funds`).
 3. `orchestra --task p0-manual-payment-approval --dry-run` para validar el flujo sin commitear.
 
 ## Decisiones tomadas con el usuario (no re-litigar)
