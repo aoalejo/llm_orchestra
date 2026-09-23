@@ -32,13 +32,16 @@ import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, pa
 import { checkKeys } from './lib/keys-check.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
 import { runTaskLoop, integrateTask } from './lib/loop.mjs';
-import { makeDeps, executeTask, scoutCommand, dispatchCommand, approveCommand, rejectCommand, statusCommand } from './lib/commands.mjs';
+import { makeDeps, executeTask, scoutCommand, dispatchCommand, approveCommand, rejectCommand, statusCommand, usageCommand } from './lib/commands.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
 import { refreshRankings, rankingsStale, maxAgeHoursOf } from './lib/models.mjs';
 import { rankModels, configPatchFromRanking, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
+import { scoutCacheKey, socraticodeOptions, buildScoutPrompt } from './lib/scout.mjs';
+import { parseUsage, quotaStatus } from './lib/usage.mjs';
+import { estimateRemaining } from './lib/cost.mjs';
 
 function initProject(force) {
   ensureDir(O);
@@ -230,6 +233,35 @@ async function selfTest() {
   eq('validateWorkOrder exige acceptance', validateWorkOrder({ id: 'a', title: 'b', acceptance: [] }).some((e) => /acceptance/.test(e)));
   eq('validateWorkOrder ok', validateWorkOrder({ id: 'a', title: 'b', acceptance: ['c'] }).length === 0);
   eq('compactFindings filtra low', compactFindings([{ findings: [{ severity: 'low', file: 'a' }, { severity: 'high', file: 'b', line: 3, problem: 'x' }] }]).length === 1);
+  eq('scoutCacheKey estable y sensible a query', (() => {
+    const a = scoutCacheKey({ head: 'h', provider: 'llm', query: 'a', scope: [], projectPath: 'p' });
+    const b = scoutCacheKey({ head: 'h', provider: 'llm', query: 'a', scope: [], projectPath: 'p' });
+    const c = scoutCacheKey({ head: 'h', provider: 'llm', query: 'b', scope: [], projectPath: 'p' });
+    return a === b && a !== c;
+  })());
+  eq('socraticodeOptions defaults', (() => {
+    const o = socraticodeOptions({});
+    return o.command === 'npx' && o.limit === 8 && o.synthesize === true && !o.projectPath.includes('\\');
+  })());
+  eq('socraticodeOptions override', (() => {
+    const o = socraticodeOptions({ scout: { socraticode: { command: 'node', args: ['x.js'], limit: 3, synthesize: false } } });
+    return o.command === 'node' && o.args[0] === 'x.js' && o.limit === 3 && o.synthesize === false;
+  })());
+  eq('buildScoutPrompt inyecta chunks', (() => {
+    const p = buildScoutPrompt({ query: 'q', scope: ['src'], task: { acceptance: ['c'] }, external: { ok: true, chunks: 'CHUNK' } });
+    return p.includes('CHUNK') && p.includes('src') && p.includes('c');
+  })());
+  eq('parseUsage normaliza', (() => {
+    const u = parseUsage({ usage: { rolling: { percent: 4, resetsAt: 'x' }, weekly: { percent: 1 }, monthly: { percent: 0 } } });
+    return u.rolling.percent === 4 && u.weekly.percent === 1 && u.monthly.percent === 0 && u.rolling.resetsAt === 'x';
+  })());
+  eq('quotaStatus low', quotaStatus({ rolling: { percent: 96 }, weekly: { percent: 10 } }, 80) === 'low');
+  eq('quotaStatus ok/unknown', quotaStatus({ rolling: { percent: 10 } }, 80) === 'ok' && quotaStatus(null) === 'unknown');
+  eq('estimateRemaining por tarea', (() => {
+    const e = estimateRemaining({ summary: { byTask: { t1: { cost: 0.2 }, t2: { cost: 0.4 } } }, remainingTasks: 3 });
+    return Math.abs(e.perTaskUsd - 0.3) < 1e-9 && Math.abs(e.usd - 0.9) < 1e-9 && e.source === 'ledger/avgPerTask';
+  })());
+  eq('estimateRemaining sin datos', estimateRemaining({ summary: {}, remainingTasks: 2 }).usd === null);
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -303,6 +335,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (args.approve) { await approveCommand(args, config, cmdDeps); return; }
   if (args.reject) { await rejectCommand(args, config, cmdDeps); return; }
   if (args.status) { statusCommand(args, config); return; }
+  if (args.usage) { await usageCommand(args, config); return; }
 
   if (args.plan) {
     // En modo chat el orquestador sos vos: no hay LLM de planificación interno.

@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **80/80 OK**; `node tests/smoke.mjs` → **31/31 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **89/89 OK**; `node tests/smoke.mjs` → **35/35 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -77,6 +77,16 @@
     `orchestra_approve`, `orchestra_reject`, `orchestra_status`, `orchestra_models`,
     `orchestra_report`. El chat despacha sin salir de la conversación; las tools invocan el
     driver con `--json` y devuelven sólo el resumen compacto.
+33. **Scout con cache + SocratiCode**: `lib/mcp.mjs` (cliente MCP stdio mínimo, sin deps) +
+    `lib/scout.mjs`. `scout.provider: auto|llm|socraticode`: si SocratiCode está disponible e
+    indexado, se usa `codebase_search` como contexto (o directo con `synthesize:false`); si no,
+    fallback a scout LLM. Cache en `runs/scout/cache/` keyed por `git HEAD+query+scope`.
+    Flags: `--provider`, `--no-cache`, `--index`.
+34. **Cuota real**: `GET {baseUrl}/usage` (rolling/weekly/monthly %) descubierto en vivo;
+    `lib/usage.mjs` + `orchestra usage [--json]` + tool `orchestra_usage` (cache 60 s).
+35. **Estimador de costo** (`lib/cost.mjs`): `estimateRemaining` desde el ledger; cuando B se
+    agota, `needs-decision` incluye `estimatedRemainingUsd`, `estimate` y `orchestratorQuota`
+    para que el chat decida (A es última instancia).
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

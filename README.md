@@ -13,6 +13,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Tools de pi** (`orchestra_scout`, `orchestra_dispatch`, `orchestra_approve`, `orchestra_reject`,
   `orchestra_status`, `orchestra_models`, `orchestra_report`): el chat despacha **sin salir de la
   conversación**; también están los subcomandos CLI equivalentes.
+- **Scout con cache y proveedor externo**: `orchestra scout` reusa resultados por `git HEAD+query`
+  y, si hay un server **SocratiCode** (MCP) disponible e indexado, lo usa como fuente
+  (`scout.provider: auto|llm|socraticode`). Fallback a scout LLM si no está.
 - **Workers baratos** rotando (default `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash`),
   elegidos por datos con `orchestra models`.
 - **Verificación adversa**: un modelo distinto al autor intenta *falsar*.
@@ -71,9 +74,11 @@ cp .orchestra/env.example .orchestra/.env   # cargar cuentas A y B
 orchestra --self-test          # valida el runtime
 orchestra --task <id> --stub   # ciclo offline (sin red ni keys) para probar el pipeline
 orchestra scout --query "dónde está el router de pagos" --json
+orchestra scout --provider socraticode --query "..."   # usa SocratiCode (MCP) si está
 orchestra dispatch --order '{"goal":"...","acceptance":["..."],"scope":["src/..."]}' --json
 orchestra approve --task <id> --commit        # el chat aprueba e integra
 orchestra status --json                       # estado de tareas
+orchestra usage                               # % de cuota por cuenta
 orchestra models               # ranking de modelos (opencode-go + arena.ai)
 orchestra models --apply       # aplica la rotación recomendada a config.json
 orchestra --keys-status        # ver cuentas configuradas

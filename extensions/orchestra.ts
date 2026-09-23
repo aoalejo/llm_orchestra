@@ -76,7 +76,7 @@ export default function orchestraExtension(pi: ExtensionAPI) {
   pi.registerCommand("orchestra", {
     description: "Lean Orchestrator: init / models / report / --clean / --self-test (multi-modelo)",
     getArgumentCompletions: (prefix) => {
-      const options = ["init", "models", "models --apply", "report", "scout", "dispatch", "approve", "reject", "status", "--clean", "--plan", "--keys-status", "--keys-check", "--self-test", "--all", "--stub", "--no-worktrees", "--task ", "--help"];
+      const options = ["init", "models", "models --apply", "report", "scout", "dispatch", "approve", "reject", "status", "usage", "--clean", "--plan", "--keys-status", "--keys-check", "--self-test", "--all", "--stub", "--no-worktrees", "--task ", "--help"];
       const filtered = options.filter((o) => o.startsWith(prefix));
       return filtered.length ? filtered.map((value) => ({ value, label: value })) : null;
     },
@@ -207,6 +207,25 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       const { data } = await runDriverJson(["status"], ctx.cwd, signal);
       const lines = (data.tasks || []).map((t: any) => `${t.id}: tasks=${t.status} state=${t.state} $${t.cost}${t.decision ? ` decision=${t.decision.reason}` : ""}`);
       return { ...text(lines.length ? lines.join("\n") : "sin tareas"), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_usage",
+    label: "Orchestra Usage",
+    description: "Cuota consumida por cuenta (rolling/weekly/monthly %) desde el endpoint /usage de opencode-go. Sirve para decidir si cerrar con la cuenta del orquestador.",
+    parameters: Type.Object({
+      noCache: Type.Optional(Type.Boolean({ description: "ignorar el cache de 60s" })),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const argv = ["usage"];
+      if (params.noCache) argv.push("--no-cache");
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      const lines = (data.accounts || []).map((a: any) => {
+        const u = a.usage;
+        return u ? `${a.role} ${a.name}: rolling=${u.rolling?.percent ?? "-"}% weekly=${u.weekly?.percent ?? "-"}% monthly=${u.monthly?.percent ?? "-"}%` : `${a.role} ${a.name}: sin datos`;
+      });
+      return { ...text(lines.length ? lines.join("\n") : "sin cuentas"), details: data };
     },
   });
 

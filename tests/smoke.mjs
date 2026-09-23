@@ -76,6 +76,7 @@ try {
   cfg.gates = { smoke: ['node -e "process.exit(0)"'] };
   cfg.protectedPaths = ['secret/'];
   cfg.models = { ...(cfg.models || {}), rankings: { enabled: false } };
+  cfg.scout = { enabled: true, provider: 'llm', cache: { maxAgeMinutes: 0 } };
   fs.writeFileSync(path.join(O, 'config.json'), JSON.stringify(cfg, null, 2));
 
   const tasks = {
@@ -174,6 +175,26 @@ try {
   const doneAfterBatch = readJson(path.join(O, 'tasks.json')).tasks.filter((t) => t.status === 'done').map((t) => t.id);
   check('dispatch multi-orden marca done', doneAfterBatch.includes('b1') && doneAfterBatch.includes('b2'), doneAfterBatch.join(','));
   check('dispatch multi-orden limpia worktrees', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
+
+  // 9. scout con SocratiCode (fake MCP server) + cache + fallback
+  const fakeMcp = path.join(HERE, 'helpers', 'fake-mcp.mjs');
+  const cfgPath = path.join(O, 'config.json');
+  const c9 = readJson(cfgPath);
+  c9.scout = { enabled: true, provider: 'socraticode', cache: { maxAgeMinutes: 720 }, socraticode: { command: process.execPath, args: [fakeMcp], timeoutMs: 20000 } };
+  fs.writeFileSync(cfgPath, JSON.stringify(c9, null, 2));
+  const sc1 = orchestra(['scout', '--query', 'foo', '--stub', '--json'], tmp, ENV);
+  check('scout socraticode usa el MCP', (() => { try { const j = JSON.parse(sc1.out); return j.source === 'socraticode+llm' && /export const foo/.test(j.chunks || ''); } catch { return false; } })(), sc1.out.slice(0, 500));
+  const sc2 = orchestra(['scout', '--query', 'foo', '--stub', '--json'], tmp, ENV);
+  check('scout usa cache (segunda vez)', (() => { try { return JSON.parse(sc2.out).cached === true; } catch { return false; } })(), sc2.out.slice(0, 300));
+  c9.scout.socraticode = { command: 'definitely-not-a-real-cmd-xyz', args: [], timeoutMs: 5000 };
+  c9.scout.cache = { maxAgeMinutes: 0 };
+  fs.writeFileSync(cfgPath, JSON.stringify(c9, null, 2));
+  const sc3 = orchestra(['scout', '--query', 'foo', '--stub', '--json'], tmp, ENV);
+  check('scout cae a LLM si socraticode falla', (() => { try { const j = JSON.parse(sc3.out); return j.status === 'ok' && j.source === 'llm'; } catch { return false; } })(), sc3.out.slice(0, 400));
+
+  // 9b. usage (sin keys configuradas → accounts vacío)
+  const usg = orchestra(['usage', '--json'], tmp, ENV);
+  check('usage --json responde', (() => { try { return Array.isArray(JSON.parse(usg.out).accounts); } catch { return false; } })(), usg.out.slice(0, 300));
 
   // 7. self-test del driver
   const st = orchestra(['--self-test'], tmp, ENV);

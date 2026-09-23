@@ -49,7 +49,23 @@
     "humanOnConflict": false
   },
 
-  "scout": { "enabled": true },
+  "scout": {
+    "$comment": "Recon barato. provider: auto | llm | socraticode. socraticode llama a un server MCP externo (SocratiCode) si esta disponible; si no, cae a LLM.",
+    "enabled": true,
+    "provider": "auto",
+    "cache": { "maxAgeMinutes": 720 },
+    "socraticode": {
+      "command": "npx",
+      "args": ["-y", "--prefer-online", "socraticode@latest"],
+      "env": {},
+      "projectPath": null,
+      "limit": 8,
+      "minScore": null,
+      "autoIndex": false,
+      "synthesize": true,
+      "timeoutMs": 120000
+    }
+  },
   "metaReview": { "enabled": true, "sampleRate": 0.34, "alwaysForHighRisk": true },
   "progress": { "repeatSignatureLimit": 2 },
 
