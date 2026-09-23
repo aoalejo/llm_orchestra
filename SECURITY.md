@@ -15,7 +15,7 @@ En cada proyecto consumidor, `.orchestra/.env` (ignorado por `.gitignore`):
 
 ```
 OPENCODE_GO_KEY_ORCHESTRATOR=...
-OPENCODE_GO_KEY_WORKER_1=...
+OPENCODE_GO_KEYS=key1,key2   # una o más keys de worker
 ```
 
 El driver las lee y las pasa por invocación con `pi --api-key`; nunca se escriben

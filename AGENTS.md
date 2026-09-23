@@ -17,7 +17,7 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 58/58 (lógica pura)
+node orchestra.mjs --self-test        # 68/68 (lógica pura)
 node tests/smoke.mjs                  # 20/20 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
@@ -103,14 +103,27 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 
 ## Cuentas (rotación)
 
-- **Cuenta A** (`OPENCODE_GO_KEY_ORCHESTRATOR`) → orquestador/juez. Reservada.
-- **Cuenta B** (`OPENCODE_GO_KEY_WORKER_1`, opcional `_2`) → workers/verifiers.
-- Las keys se pasan por invocación con `pi --api-key` (prioridad 1 sobre `auth.json`/env).
-- Si B se agota: rota a la 2ª; si no, el orquestador decide (`ALLOW_WORKER_FALLBACK=1` → usar A; si no, `fallback.models` o parquear).
+Se configuran en `.orchestra/.env`:
+
+```bash
+OPENCODE_GO_KEY_ORCHESTRATOR=...   # cuenta A (orquestador/juez), reservada
+OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
+```
+
+- **Cuenta A** → orquestador/juez. Reservada (no se rota).
+- **Cuentas B** → workers/verifiers. `OPENCODE_GO_KEYS` acepta una sola key,
+  una lista separada por comas/newlines, o un JSON array (`["k1","k2"]`).
+  El driver las usa **de forma rotativa** entre subagentes y marca las agotadas.
+- `config.keys.workers` puede ser el nombre de esa env var (recomendado) o un array de
+  nombres de env vars (formato legacy, una por cuenta).
+- Las keys se pasan por invocación con `pi --api-key` (prioridad 1 sobre `auth.json`/env),
+  así que nunca se mezclan: el orquestador conserva la cuenta A aunque B se agote.
+- Si todas las B se agotan: `ALLOW_WORKER_FALLBACK=1` reusa A, o el orquestador decide
+  (`useFallbackModels` → usa `fallback.models`, o parkea).
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 58/58 + smoke 20/20). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 68/68 + smoke 20/20). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
@@ -128,7 +141,7 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (58 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- El `selfTest` no usa red ni keys (68 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
 - **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
   de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
 - `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.

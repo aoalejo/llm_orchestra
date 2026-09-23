@@ -20,6 +20,8 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Ranking de modelos** (`orchestra models`): cruza el catálogo real de `opencode-go`
   con el score WebDev de [arena.ai](https://arena.ai/leaderboard/code/webdev) y propone
   (o aplica con `--apply`) los modelos baratos para la rotación y los de escalado.
+  Se **refresca solo cada 24 h**; los roles se pueden **pinnear** (`models.pins`) o excluir
+  (`models.exclude`), y hay `models.aliases`/`models.scoreOverrides` por modelo.
 - **Reporte de costos** (`orchestra report`): costo y llamadas por rol, modelo y tarea desde el ledger.
 - **Tests**: self-test de lógica pura + smoke de integración del ciclo completo (runner stub),
   corridos en CI (ubuntu/windows × node 20/22) con `npm test`.
@@ -112,6 +114,12 @@ contra el catálogo vivo de `opencode-go` y el score de arena.ai (ver arriba).
 
 Las keys se pasan por invocación con `pi --api-key` (prioridad 1 sobre `auth.json`/env),
 así que nunca se mezclan: el orquestador conserva la cuenta A aunque B se agote.
+
+Las cuentas B van en **una sola** env var, con una o varias keys rotativas:
+
+```bash
+OPENCODE_GO_KEYS=key1,key2,key3      # o ["key1","key2"] o una sola key
+```
 
 ## Seguridad
 

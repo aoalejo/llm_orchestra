@@ -73,7 +73,10 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 6. Keys y rotación
 
-- `pickKey(role)`: orquestador siempre cuenta A; workers usan el pool B con round-robin y set de `exhausted`.
+- `pickKey(role)`: orquestador siempre cuenta A; workers usan el pool B (una o varias keys)
+  con round-robin y set de `exhausted`. Las keys se leen de `config.keys.workers`: una **sola
+  env var** con lista (`OPENCODE_GO_KEYS`, acepta `k1,k2`, saltos de línea o JSON) o, legacy,
+  un array de env vars. Cada key se identifica como `<envVar>#<idx>` en el ledger.
 - Detección de agotamiento: regex sobre stderr/errores (`401/402/429/quota/insufficient/...`).
 - Al quedarse sin keys B: `callOrchestrator` decide (`useOrchestratorKey|useFallbackModels|pause`).
 - `--keys-status` muestra las cuentas enmascaradas.
@@ -98,12 +101,13 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **58 casos**):
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **68 casos**):
 `extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
 `workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
 `budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`,
 `matchModel`, `rankModels`, `configPatchFromRanking`, `idVariants`, `bestArenaMatch`,
-`summarizeLedger`, `resolveLinkTargets`, `detectExhausted`.
+`summarizeLedger`, `resolveLinkTargets`, `detectExhausted`, `parseKeyList`,
+`workerKeyEntries`, `maxAgeHoursOf`, `rankingsStale`.
 **Si agregás lógica pura, agregá su caso.** El self-test ya cazó bugs reales
 (`extractLastJson` tomaba objetos anidados).
 
@@ -157,9 +161,16 @@ orchestra models --apply    # escribe roles/fallback en config.json (backup .bak
 orchestra models --json     # salida máquina
 ```
 
-Si `models.rankings.autoApply` es `true` (default), en cada corrida real se refresca (si el
-archivo `.orchestra/models.generated.json` supera `maxAgeDays`) y se aplican los pools solos,
-con backup en `config.json.bak`. Ponelo en `false` si querés revisar antes de aplicar.
+Si `models.rankings.autoApply` es `true` (default), en cada corrida real se refresca si el
+archivo `.orchestra/models.generated.json` supera `models.rankings.maxAgeHours` (default **24 h**)
+y se aplican los pools solos, con backup en `config.json.bak`. Ponelo en `false` para revisar antes.
+
+**Pins y overrides** (el refresh no los pisa):
+- `models.pins.<rol>`: fuerza un modelo en `author`/`verifier` (listas) y
+  `escalationAuthor`/`escalationVerifier`/`service`/`scout`/`scribe`/`security`/`merge` (strings).
+- `models.exclude`: blocklist de ids que nunca se usan.
+- `models.scoreOverrides`: score manual por id (SKUs nuevos sin entrada en arena).
+- `models.aliases`: id de opencode-go → slug(s) de arena.
 
 ## 11. Report y señales
 

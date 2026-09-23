@@ -27,13 +27,13 @@ import {
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
 import { resolvePi, callModel, changedFiles } from './lib/runner.mjs';
-import { makeKeyState, pickKey, keysStatus } from './lib/keys.mjs';
+import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList } from './lib/keys.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets } from './lib/worktrees.mjs';
 import { callOrchestrator, runTaskLoop, integrateTask } from './lib/loop.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
-import { refreshRankings, rankingsStale } from './lib/models.mjs';
+import { refreshRankings, rankingsStale, maxAgeHoursOf } from './lib/models.mjs';
 import { rankModels, configPatchFromRanking, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
 
@@ -161,6 +161,50 @@ function selfTest() {
   eq('summarizeLedger vacío', summarizeLedger([]).events === 0 && summarizeLedger(null).cost === 0);
   eq('resolveLinkTargets default', resolveLinkTargets({}).length >= 1);
   eq('resolveLinkTargets custom', (() => { const t = resolveLinkTargets({ worktrees: { link: ['node_modules'] } }); return t.length === 1 && t[0].endsWith('node_modules'); })());
+  eq('parseKeyList single', JSON.stringify(parseKeyList('abc')) === JSON.stringify(['abc']));
+  eq('parseKeyList json', JSON.stringify(parseKeyList('["a","b"]')) === JSON.stringify(['a', 'b']));
+  eq('parseKeyList separadores', JSON.stringify(parseKeyList('a, b\nc;d')) === JSON.stringify(['a', 'b', 'c', 'd']));
+  eq('parseKeyList vacío', parseKeyList('   ').length === 0);
+  eq('maxAgeHoursOf default y legacy', maxAgeHoursOf({}) === 24 && maxAgeHoursOf({ models: { rankings: { maxAgeDays: 3 } } }) === 72 && maxAgeHoursOf({ models: { rankings: { maxAgeHours: 5 } } }) === 5);
+  eq('rankingsStale por horas', rankingsStale(new Date(Date.now() - 25 * 3600e3).toISOString(), 24) === true && rankingsStale(new Date(Date.now() - 3600e3).toISOString(), 24) === false);
+  eq('workerKeyEntries expande lista y rota', (() => {
+    const prev = process.env.ORCHESTRA_TEST_KEYS;
+    process.env.ORCHESTRA_TEST_KEYS = 'k1,k2,k3';
+    const cfg = { keys: { orchestrator: 'ORCHESTRA_TEST_ORCH', workers: 'ORCHESTRA_TEST_KEYS' } };
+    const entries = workerKeyEntries(cfg);
+    const ks = makeKeyState();
+    const p1 = pickKey(cfg, ks, 'worker');
+    const p2 = pickKey(cfg, ks, 'worker');
+    const ok = entries.length === 3 && p1.value === 'k1' && p2.value === 'k2' && p1.name === 'ORCHESTRA_TEST_KEYS#0';
+    if (prev === undefined) delete process.env.ORCHESTRA_TEST_KEYS; else process.env.ORCHESTRA_TEST_KEYS = prev;
+    return ok;
+  })());
+  eq('workerKeyEntries legacy array de env vars', (() => {
+    const prev1 = process.env.ORCHESTRA_TEST_A; const prev2 = process.env.ORCHESTRA_TEST_B;
+    process.env.ORCHESTRA_TEST_A = '["x","y"]'; process.env.ORCHESTRA_TEST_B = 'z';
+    const cfg = { keys: { orchestrator: 'ORCHESTRA_TEST_ORCH', workers: ['ORCHESTRA_TEST_A', 'ORCHESTRA_TEST_B'] } };
+    const names = workerKeyEntries(cfg).map((k) => k.name);
+    const ok = names.join(',') === 'ORCHESTRA_TEST_A#0,ORCHESTRA_TEST_A#1,ORCHESTRA_TEST_B#0';
+    if (prev1 === undefined) delete process.env.ORCHESTRA_TEST_A; else process.env.ORCHESTRA_TEST_A = prev1;
+    if (prev2 === undefined) delete process.env.ORCHESTRA_TEST_B; else process.env.ORCHESTRA_TEST_B = prev2;
+    return ok;
+  })());
+  eq('rankModels exclude', (() => {
+    const r = rankModels(
+      [{ id: 'a', cost: { input: 0.1, output: 0.2 } }, { id: 'b', cost: { input: 0.1, output: 0.2 } }],
+      [{ rank: 1, slug: 'a', score: 100 }, { rank: 2, slug: 'b', score: 99 }],
+      { exclude: ['a'], workerMaxInputCost: 1, workersPerRole: 1 },
+    );
+    return r.author[0] === 'b' && r.counts.excluded === 1;
+  })());
+  eq('rankModels pins por rol', (() => {
+    const r = rankModels(
+      [{ id: 'a', cost: { input: 0.1, output: 0.2 } }, { id: 'b', cost: { input: 0.1, output: 0.2 } }],
+      [{ rank: 1, slug: 'a', score: 100 }, { rank: 2, slug: 'b', score: 99 }],
+      { pins: { author: ['b'], service: 'a', security: 'b' }, workerMaxInputCost: 1, workersPerRole: 2 },
+    );
+    return r.author[0] === 'b' && r.service === 'a' && r.serviceRoles.security === 'b' && r.serviceRoles.scout === 'a';
+  })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -207,7 +251,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
 
   log(`pi: ${pi.label} | provider: ${config.provider} | runner: ${runner}`);
   if (!process.env[config.keys.orchestrator]) warn(`falta ${config.keys.orchestrator} en .orchestra/.env`);
-  if (!config.keys.workers.some((k) => process.env[k])) warn(`falta alguna de ${config.keys.workers.join(', ')} en .orchestra/.env`);
+  if (!workerKeyEntries(config).length) warn(`falta alguna key de worker en ${workerKeyNames(config).join(', ') || '(config.keys.workers)'} (.orchestra/.env)`);
 
   if (args.plan) {
     const state = fs.readFileSync(path.join(O, 'STATE.md'), 'utf8');
@@ -220,20 +264,23 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
     return;
   }
 
-  // Rankings de modelos: refresh best-effort si están viejos (una vez cada maxAgeDays).
+  // Rankings de modelos: refresh best-effort si están viejos (default: cada 24 h).
   if (runner === 'real' && config.models?.rankings?.enabled !== false && !args.plan) {
     try {
       const genPath = path.join(O, 'models.generated.json');
       const gen = exists(genPath) ? readJson(genPath) : null;
-      const maxAge = config.models?.rankings?.maxAgeDays ?? 7;
-      if (args.refresh || rankingsStale(gen?.generatedAt, maxAge)) {
+      const maxAgeHours = maxAgeHoursOf(config);
+      if (args.refresh || rankingsStale(gen?.generatedAt, maxAgeHours)) {
         const ranking = await refreshRankings(config);
         writeJson(genPath, { generatedAt: now(), ...ranking });
-        log(`rankings de modelos actualizados → author: ${ranking.author.join(', ')}`);
+        log(`rankings de modelos actualizados (cada ${maxAgeHours} h) → author: ${ranking.author.join(', ')}`);
         if (config.models?.rankings?.autoApply) {
           config = applyAndSaveRanking(config, ranking, path.join(O, 'config.json'));
           log('pools de rotación aplicados a config.json');
         }
+      } else {
+        const ageH = ((Date.now() - new Date(gen.generatedAt).getTime()) / 3600e3).toFixed(1);
+        log(`rankings de modelos vigentes (${ageH} h; refresca a las ${maxAgeHours} h)`);
       }
     } catch (e) { warn(`no se pudo actualizar rankings: ${e.message}`); }
   }

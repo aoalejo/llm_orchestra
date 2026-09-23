@@ -8,7 +8,7 @@
 - **Merge agent best-effort**: puede resolver conflictos simples; conflictos complejos
   quedan para humano.
 - **Detección de agotamiento heurística** (regex sobre errores): puede dar falsos positivos/negativos.
-- **Tests**: self-test de lógica pura (58 casos) + `tests/smoke.mjs` (20 invariantes del ciclo
+- **Tests**: self-test de lógica pura (68 casos) + `tests/smoke.mjs` (20 invariantes del ciclo
   completo con runner stub en un repo temporal), ambos en CI. Falta cobertura de los caminos
   con red real (pi/provider) y de resolución de conflictos complejos del merge-agent.
 - **Sin provider además de `opencode-go` cableado** (aunque `provider` es config).
@@ -24,7 +24,10 @@
 - **Rutas protegidas por diff real**, no sólo por `scope` declarado.
 - **Limpieza de rama** `orchestra/<id>` tras integrar.
 - **Ranking de modelos** (`orchestra models`) contra el catálogo opencode-go + arena.ai,
-  con `--apply` y auto-refresh (`models.rankings`); portado de `aoalejo/opencode_mcp`.
+  con `--apply` y auto-refresh cada 24 h (`models.rankings`); portado de `aoalejo/opencode_mcp`.
+- **Pins / exclude / overrides** por modelo (`models.pins`, `models.exclude`, `scoreOverrides`,
+  `aliases`) para congelar o descartar modelos.
+- **Cuentas B en una sola env var** (`OPENCODE_GO_KEYS`) con 1..N keys rotativas.
 - **Match robusto a arena**: aliases (`qwen3.8-flash` → `qwen3.8-flash-next`), sufijos no
   semánticos del id (`muse-spark-1.3-contributor`), overrides manuales (`mimo-v2.6-flash`)
   e inferencia por familia (hereda del hermano de costo más parecido).

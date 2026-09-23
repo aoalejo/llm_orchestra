@@ -4,8 +4,9 @@
   "provider": "opencode-go",
 
   "keys": {
+    "$comment": "workers: una sola env var con una lista de keys (recomendado) o un array de env vars (legacy). Ver env.example.",
     "orchestrator": "OPENCODE_GO_KEY_ORCHESTRATOR",
-    "workers": ["OPENCODE_GO_KEY_WORKER_1", "OPENCODE_GO_KEY_WORKER_2"]
+    "workers": "OPENCODE_GO_KEYS"
   },
 
   "roles": {
@@ -69,7 +70,20 @@
       "$comment": "Score fijado a mano para SKUs nuevos que arena aún no rankea. Revisar periódicamente y borrar cuando aparezcan en el leaderboard.",
       "mimo-v2.6-flash": { "score": 1616, "note": "SKU nuevo; ≈ deepseek-v4.1-flash según mantenedor (2026-09)" }
     },
-    "rankings": { "enabled": true, "maxAgeDays": 7, "autoApply": true }
+    "exclude": [],
+    "pins": {
+      "$comment": "Fuerza un modelo en un rol y el refresh no lo toca. Vacío = todo automático.",
+      "author": [],
+      "verifier": [],
+      "escalationAuthor": "",
+      "escalationVerifier": "",
+      "service": "",
+      "scout": "",
+      "scribe": "",
+      "security": "",
+      "merge": ""
+    },
+    "rankings": { "enabled": true, "maxAgeHours": 24, "autoApply": true }
   },
 
   "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
