@@ -26,9 +26,9 @@ import {
   shouldMetaReview, pathsConflict, detectExhausted,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
-import { resolvePi, callModel, changedFiles } from './lib/runner.mjs';
+import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor } from './lib/runner.mjs';
 import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList } from './lib/keys.mjs';
-import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets } from './lib/worktrees.mjs';
+import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
 import { callOrchestrator, runTaskLoop, integrateTask } from './lib/loop.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
@@ -57,7 +57,7 @@ function initProject(force) {
   log('init listo. Editá .orchestra/config.json y completá .orchestra/.env');
 }
 
-function selfTest() {
+async function selfTest() {
   const t = [];
   const eq = (name, cond) => t.push({ name, ok: !!cond });
   eq('extractLastJson bloque ```json', extractLastJson('foo\n```json\n{"verdict":"PASS","findings":[]}\n```\nbar')?.verdict === 'PASS');
@@ -206,6 +206,12 @@ function selfTest() {
     return r.author[0] === 'b' && r.service === 'a' && r.serviceRoles.security === 'b' && r.serviceRoles.scout === 'a';
   })());
 
+  eq('streamPathFor', streamPathFor(path.join(RUNS, 't', 'cycle-1', 'author.json')).endsWith('author.stream.jsonl'));
+  eq('heartbeatPathFor tarea', heartbeatPathFor(path.join(RUNS, 't', 'cycle-1', 'author.json')) === path.join(RUNS, 't', 'heartbeat.json'));
+  eq('heartbeatPathFor global', heartbeatPathFor(path.join(RUNS, 'plan.orchestrator.json')) === path.join(RUNS, 'heartbeat.json'));
+  const to = await runProcess(process.execPath, ['-e', 'setInterval(()=>{},1000)'], { timeoutMs: 400 });
+  eq('runProcess timeout → timedOut y code 124', to.timedOut === true && to.code === 124);
+
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
   console.log(`\nself-test: ${t.length - failed.length}/${t.length} OK`);
@@ -223,25 +229,28 @@ async function main() {
   orchestra models [--apply] [--json] [--refresh]
                                     # ranking de modelos (opencode + arena.ai)
   orchestra report [--json]         # costos y veredictos desde ledger.jsonl
+  orchestra --clean [--force]       # limpia worktrees/ramas huérfanas (deslinkea junctions)
   orchestra --plan
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
 Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status
-       models [--apply] [--json] --stub  report [--json]`);
+       models [--apply] [--json] --stub  report [--json]  --clean [--force]`);
     return;
   }
-  if (args.selfTest) return selfTest();
+  if (args.selfTest) return await selfTest();
   if (args.init) return initProject(args.force);
 
   if (!exists(path.join(O, 'config.json'))) die('falta .orchestra/config.json');
   let config = readJson(path.join(O, 'config.json'));
   flags.verbose = args.verbose;
+  setPiTimeout(config.loop?.piTimeoutMs);   // timeout de cada llamada a pi
   loadEnv(path.join(O, '.env'));            // antes de resolvePi: ORCHESTRA_PI_CLI puede venir del .env
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
 
   if (args.models) { if (args.json) flags.quiet = true; await runModelsCommand(args, config); return; }
   if (args.report) { if (args.json) flags.quiet = true; reportCommand(args); return; }
+  if (args.clean) { await cleanWorktrees(config, { force: args.force }); return; }
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
 
   const runner = args.stub || process.env.ORCHESTRA_RUNNER === 'stub' ? 'stub' : 'real';

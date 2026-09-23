@@ -8,7 +8,7 @@
 - **Merge agent best-effort**: puede resolver conflictos simples; conflictos complejos
   quedan para humano.
 - **Detección de agotamiento heurística** (regex sobre errores): puede dar falsos positivos/negativos.
-- **Tests**: self-test de lógica pura (68 casos) + `tests/smoke.mjs` (20 invariantes del ciclo
+- **Tests**: self-test de lógica pura (72 casos) + `tests/smoke.mjs` (20 invariantes del ciclo
   completo con runner stub en un repo temporal), ambos en CI. Falta cobertura de los caminos
   con red real (pi/provider) y de resolución de conflictos complejos del merge-agent.
 - **Sin provider además de `opencode-go` cableado** (aunque `provider` es config).

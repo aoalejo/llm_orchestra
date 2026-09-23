@@ -23,6 +23,9 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
   Se **refresca solo cada 24 h**; los roles se pueden **pinnear** (`models.pins`) o excluir
   (`models.exclude`), y hay `models.aliases`/`models.scoreOverrides` por modelo.
 - **Reporte de costos** (`orchestra report`): costo y llamadas por rol, modelo y tarea desde el ledger.
+- **Robusto para desatendido**: timeout por llamada a `pi` (`loop.piTimeoutMs`, default 15 min)
+  con kill del árbol, stream/stderr a disco en vivo, heartbeat por tarea y `orchestra --clean`
+  para limpiar worktrees sin romper el `node_modules` real.
 - **Tests**: self-test de lógica pura + smoke de integración del ciclo completo (runner stub),
   corridos en CI (ubuntu/windows × node 20/22) con `npm test`.
 - Solo el **orquestador commitea**.
@@ -71,6 +74,7 @@ orchestra --task <id> --dry-run
 orchestra --task <id> --commit
 orchestra --all --workers 4
 orchestra report               # costos y veredictos del ledger
+orchestra --clean [--force]    # limpia worktrees/ramas huérfanas de forma segura
 ```
 
 O desde pi: `/orchestra --keys-status`, `/orchestra --plan`.

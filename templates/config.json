@@ -31,7 +31,8 @@
     "maxCycles": 4,
     "maxParallelTasks": 4,
     "doubleVerifyHighRisk": true,
-    "highRiskLevels": ["high", "critical"]
+    "highRiskLevels": ["high", "critical"],
+    "piTimeoutMs": 900000
   },
 
   "worktrees": {

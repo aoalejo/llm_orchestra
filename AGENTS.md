@@ -17,7 +17,7 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 68/68 (lógica pura)
+node orchestra.mjs --self-test        # 72/72 (lógica pura)
 node tests/smoke.mjs                  # 20/20 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
@@ -28,6 +28,9 @@ node orchestra.mjs --task <id> --stub --dry-run
 # Ranking de modelos (catálogo opencode-go + arena.ai)
 node orchestra.mjs models
 node orchestra.mjs models --apply
+
+# Limpieza segura de worktrees huérfanos (no rompe el node_modules real)
+node orchestra.mjs --clean
 
 # En un proyecto consumidor
 cd /ruta/al/proyecto
@@ -123,7 +126,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 68/68 + smoke 20/20). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 72/72 + smoke 20/20). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
@@ -141,7 +144,12 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (68 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- El `selfTest` no usa red ni keys (72 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- **Timeout de pi**: `loop.piTimeoutMs` (default 15 min). Al vencer mata el árbol y deja
+  `<rol>.json` (con `timedOut:true`), `<rol>.stream.jsonl`, `<rol>.stderr.log` y `heartbeat.json`.
+- **`--clean`**: si un run murió con `SIGKILL`, corré `orchestra --clean` (deslinkea junctions
+  antes de borrar). Nunca borres `.orchestra/worktrees/` a mano: un `git worktree remove`
+  atraviesa el junction y borra el `node_modules` real.
 - **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
   de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
 - `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.

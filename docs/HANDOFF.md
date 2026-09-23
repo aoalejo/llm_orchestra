@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **68/68 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **72/72 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -55,6 +55,14 @@
 22. **Cuentas B en una sola env var**: `OPENCODE_GO_KEYS` con 1..N keys (JSON o separadas por
     comas/newlines), usadas **rotativamente** por subagente; `config.keys.workers` sigue
     aceptando el array legacy de env vars. `keys-status` muestra `<envVar>#<idx>`.
+23. **Timeout de pi** (`loop.piTimeoutMs`, default 15 min): mata el **árbol** del proceso
+    (taskkill /T en Windows), marca `timedOut` y lo trata como fallo reintentable; el `logFile`
+    se escribe siempre (antes un cuelgue no dejaba evidencia).
+24. **Streaming en vivo**: `<rol>.stream.jsonl` (una línea por evento) y `<rol>.stderr.log`.
+25. **Heartbeat**: `runs/<task>/heartbeat.json` (`{ts,pid,role,silentMs,timeoutMs}`) + aviso
+    "sin datos desde Xs" con `--verbose`.
+26. **`orchestra --clean [--force]`**: limpieza segura de worktrees/ramas huérfanas; deslinkea
+    los junctions antes de borrar (evita destruir el `node_modules` real) y conserva los aprobados.
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

@@ -89,6 +89,9 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
   runs/<task>/cycle-N/author.json        # salida + usage del autor
   runs/<task>/cycle-N/gate.log           # gate determinista
   runs/<task>/cycle-N/diff.patch         # diff del ciclo
+  runs/<task>/cycle-N/<rol>.json         # salida + usage (se escribe SIEMPRE, también en timeout)
+  runs/<task>/cycle-N/<rol>.stream.jsonl # stream en vivo de pi (evento por línea)
+  runs/<task>/cycle-N/<rol>.stderr.log   # stderr crudo de pi
   runs/<task>/cycle-N/verdict-*.json     # verdicts
   runs/<task>/cycle-N/approval.json      # aprobación del orquestador
   runs/<task>/cycle-N/{scout,merge-agent,meta-review}.json
@@ -101,13 +104,14 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **68 casos**):
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **72 casos**):
 `extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
 `workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
 `budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`,
 `matchModel`, `rankModels`, `configPatchFromRanking`, `idVariants`, `bestArenaMatch`,
 `summarizeLedger`, `resolveLinkTargets`, `detectExhausted`, `parseKeyList`,
-`workerKeyEntries`, `maxAgeHoursOf`, `rankingsStale`.
+`workerKeyEntries`, `maxAgeHoursOf`, `rankingsStale`, `streamPathFor`, `heartbeatPathFor`,
+`runProcess` (timeout).
 **Si agregás lógica pura, agregá su caso.** El self-test ya cazó bugs reales
 (`extractLastJson` tomaba objetos anidados).
 
@@ -177,8 +181,20 @@ y se aplican los pools solos, con backup en `config.json.bak`. Ponelo en `false`
 - `orchestra report [--json]` agrega `.orchestra/ledger.jsonl`: costo total, llamadas y costo
   por **rol**, por **modelo** y por **tarea**, más gates rojos, keys agotadas y el estado de
   cada corrida (`runs/<task>/state.json`). Es la versión CLI del "dashboard" del roadmap.
+- **Timeout de pi**: cada llamada a `pi` tiene `loop.piTimeoutMs` (default 15 min). Al vencer
+  se mata el **árbol** del proceso (en Windows `taskkill /PID /T /F`, para no dejar el `node.exe`
+  huérfano), se marca `timedOut: true` y el ciclo lo trata como **fallo reintentable**. El
+  `logFile` se escribe igual (antes se perdía la evidencia).
+- **Streaming a disco**: `runPi` appendea cada línea del stream a `<rol>.stream.jsonl` y el
+  stderr a `<rol>.stderr.log`, así un run colgado es inspeccionable en tiempo real.
+- **Heartbeat**: `runs/<task>/heartbeat.json` con `{ts, pid, role, model, silentMs, timeoutMs}`
+  (se escribe al iniciar y cada 30 s) para que un watchdog externo detecte cuelgues. Con
+  `--verbose` además loguea "sin datos desde Xs (último: <evento>)".
+- **`orchestra --clean [--force]`**: deslinkea los junctions de dependencias **antes** de
+  borrar, y limpia worktrees/ramas huérfanas. Conserva los de tareas `approved` (salvo
+  `--force`). Es la limpieza segura tras un `SIGKILL`, que antes podía dejar que un
+  `git worktree remove` atravesara el junction y borrara el `node_modules` real.
 - **Señales**: `SIGINT`/`SIGTERM` eliminan los worktrees que quedaron a medio hacer.
-  Los de tareas ya `approved` se **conservan** (hay trabajo válido pendiente de integrar).
 
 ## 12. Layout de módulos (`lib/`)
 
