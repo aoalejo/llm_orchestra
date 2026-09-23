@@ -17,7 +17,7 @@ y **rotación de cuentas**, para resolver tareas de programación en cualquier p
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 55/55 (lógica pura)
+node orchestra.mjs --self-test        # 58/58 (lógica pura)
 node tests/smoke.mjs                  # 20/20 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
@@ -64,8 +64,8 @@ Reglas duras:
 
 | Archivo | Qué es |
 |---|---|
-| `orchestra.mjs` | Driver completo (CLI + runtime). Única dependencia: Node ≥20. |
-| `lib/*.mjs` | Ranking de modelos: `models.mjs` (catálogo/refresh), `rank.mjs` (pools), `leaderboard.mjs` (arena.ai). |
+| `orchestra.mjs` | Entrypoint/CLI (325 líneas): `init`, `models`, `report`, `selfTest`, `main`. |
+| `lib/*.mjs` | Implementación: `loop` (autor/verifier/aprobación/integración), `runner` (pi/procesos), `worktrees`, `keys`, `pure` (lógica testeable), `models`/`rank`/`leaderboard` (ranking), `modelscmd`, `report`, `stub`, `agents`, `args`, `paths`, `log`, `util`. |
 | `agents/*.md` | Prompts de rol (orchestrator, author, verifier, security-reviewer, scout, scribe, merge-agent). |
 | `prompts/*.md` | Prompt templates de pi (`/ralph-cycle`, `/p0-critical`). |
 | `templates/*` | Plantillas que usa `orchestra init`. |
@@ -110,7 +110,7 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 55/55 + smoke 20/20). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 58/58 + smoke 20/20). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
@@ -128,7 +128,7 @@ Catálogo real cacheado en `~/.pi/agent/models-store.json`. Base `https://openco
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (55 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
+- El `selfTest` no usa red ni keys (58 casos); `tests/smoke.mjs` valida el ciclo (20 invariantes).
 - **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
   de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
 - `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.

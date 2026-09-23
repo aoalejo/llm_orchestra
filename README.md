@@ -78,7 +78,7 @@ O desde pi: `/orchestra --keys-status`, `/orchestra --plan`.
 ```
 orchestra/
   orchestra.mjs        # driver (CLI + runtime)
-  lib/                 # ranking de modelos (catálogo opencode-go + arena.ai)
+  lib/                 # implementación modular (loop, runner, worktrees, ranking, ...)
   agents/              # prompts de rol (orchestrator, author, verifier, ...)
   prompts/             # workflow prompts de pi
   templates/           # plantillas para `orchestra init`

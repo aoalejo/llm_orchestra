@@ -98,7 +98,7 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 
 ## 8. Self-test
 
-`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **55 casos**):
+`node orchestra.mjs --self-test` valida lógica pura sin red (hoy **58 casos**):
 `extractLastJson`, `findingsSignature`, `isProtected`, `isProtectedChange`, `gateCommands`,
 `workOrderText`, `pickAuthorVerifier`, `pickFallbackPair`, `recordUsage`,
 `budgetStatus`, `shouldMetaReview`, `stubModel`, `pathsConflict`, `parseArgs`,
@@ -169,7 +169,29 @@ con backup en `config.json.bak`. Ponelo en `false` si querés revisar antes de a
 - **Señales**: `SIGINT`/`SIGTERM` eliminan los worktrees que quedaron a medio hacer.
   Los de tareas ya `approved` se **conservan** (hay trabajo válido pendiente de integrar).
 
-## 12. Cómo extender
+## 12. Layout de módulos (`lib/`)
+
+`orchestra.mjs` es sólo el entrypoint/CLI (`init`, `models`, `report`, `selfTest`, `main`).
+La lógica vive en módulos chicos:
+
+| Módulo | Qué contiene |
+|---|---|
+| `paths.mjs` | `ROOT`, `.orchestra/`, `RUNS`, `SCRATCH`, `WORKTREES`, `LEDGER`, `AGENTS_DIR`. |
+| `log.mjs` | `log`/`vlog`/`warn`/`die` + flags `verbose`/`quiet`. |
+| `util.mjs` | fs/JSON, `makeQueue` (colas FIFO), `runWithConcurrency`. |
+| `agents.mjs` | `readAgent` (prompts de rol) y `loadEnv`. |
+| `args.mjs` | `parseArgs`. |
+| `pure.mjs` | Lógica pura testeable (JSON, findings, paths, work order, presupuesto, stall…). |
+| `stub.mjs` | `stubModel` (runner sin red). |
+| `runner.mjs` | `resolvePi`, `runProcess`, `runPi`, `callModel`, `runGate`, `writeDiff`, `changedFiles`. |
+| `worktrees.mjs` | `prepareWorktree`/`removeWorktree`, enlace de deps, señales. |
+| `keys.mjs` | Pool A/B: `makeKeyState`, `pickKey`, `keysStatus`. |
+| `loop.mjs` | `callOrchestrator/Scout/Verifier`, `runTaskLoop`, `integrateTask`. |
+| `report.mjs` | `readLedger`, `summarizeLedger`, `reportCommand`. |
+| `modelscmd.mjs` | `runModelsCommand`, `applyAndSaveRanking`. |
+| `models/rank/leaderboard.mjs` | Ranking de modelos (catálogo, pools, arena.ai). |
+
+## 13. Cómo extender
 
 - **Nuevo rol**: crear `agents/<rol>.md` + `roles.<rol>` en config + usarlo en el loop.
 - **Nueva estrategia de integración**: hoy sólo `merge-branch`; `integration.strategy` está listo para `patch-apply` u otras.

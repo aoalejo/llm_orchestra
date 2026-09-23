@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **55/55 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **58/58 OK**; `node tests/smoke.mjs` → **20/20 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -45,6 +45,10 @@
     plantilla, `worktrees.link` configurable, commit message default).
 17. **`orchestra report`** (costo por rol/modelo/tarea) + **smoke test** de integración + **CI**.
 18. **Señales**: SIGINT/SIGTERM limpia los worktrees a medio hacer (conserva los aprobados).
+19. **`models --apply` también ajusta roles de servicio** (`scout`/`scribe`/`security`/`merge`)
+    con el mejor modelo barato; se puede desactivar con `models.applyServiceRoles: false`.
+20. **Modularización**: `orchestra.mjs` pasó de 1151 a 325 líneas; la lógica vive en `lib/`
+    (loop, runner, worktrees, keys, pure, report, modelscmd, etc.).
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

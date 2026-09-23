@@ -59,6 +59,7 @@
     "minContextWindow": 200000,
     "scoreTolerancePct": 0.01,
     "familyInference": true,
+    "applyServiceRoles": true,
     "arenaUrl": "https://arena.ai/leaderboard/code/webdev",
     "aliases": {
       "$comment": "id de opencode-go -> slug(s) con los que figura en arena.ai.",
