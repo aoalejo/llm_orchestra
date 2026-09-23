@@ -26,6 +26,9 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const DRIVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "orchestra.mjs");
 
+// Timers de widget por contexto de comando (para poder apagarlo).
+const dashboards = new Map<any, any>();
+
 function runDriver(argv: string[], cwd: string, signal?: AbortSignal): Promise<number> {
   return new Promise((resolve) => {
     try {
@@ -68,6 +71,46 @@ function runDriverJson(argv: string[], cwd: string, signal?: AbortSignal): Promi
       }
     });
   });
+}
+
+/** Ejecuta el driver y devuelve su stdout como líneas (para el panel). */
+function spawnLines(argv: string[], cwd: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    try {
+      const child = spawn(process.execPath, [DRIVER, ...argv], { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      child.stdout.on("data", (d) => { out += d.toString(); });
+      child.on("close", () => resolve(out.split(/\r?\n/).filter((l) => l.trim().length > 0)));
+      child.on("error", () => resolve([]));
+    } catch { resolve([]); }
+  });
+}
+
+/**
+ * Mientras corre una orden larga, refresca un widget con el dashboard
+ * (`--plain --no-usage`, sin red) y streamea lo mismo por `onUpdate`.
+ */
+async function withProgress(ctx: any, cwd: string, onUpdate: any, label: string, fn: () => Promise<any>, intervalMs = 2500) {
+  const ui = ctx?.ui;
+  let stopped = false;
+  const refresh = async () => {
+    if (stopped) return;
+    const lines = await spawnLines(["dashboard", "--once", "--plain", "--no-usage"], cwd);
+    if (stopped || !lines.length) return;
+    try { ui?.setWidget?.("orchestra", lines, { placement: "belowEditor" }); } catch { /* noop */ }
+    onUpdate?.(text(lines.join("\n")));
+  };
+  try { ui?.setStatus?.("orchestra", label); } catch { /* noop */ }
+  refresh();
+  const timer = setInterval(() => { refresh().catch(() => {}); }, intervalMs);
+  if (typeof timer.unref === "function") timer.unref();
+  try {
+    return await fn();
+  } finally {
+    stopped = true;
+    clearInterval(timer);
+    try { ui?.setWidget?.("orchestra", undefined); ui?.setStatus?.("orchestra", undefined); } catch { /* noop */ }
+  }
 }
 
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
@@ -145,7 +188,7 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       if (params.dryRun) argv.push("--dry-run");
       if (params.decisions) argv.push("--decisions", params.decisions);
       onUpdate?.(text(`despachando ${params.orders.length} orden(es)...`));
-      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      const { data } = await withProgress(ctx, ctx.cwd, onUpdate, `dispatch ${params.orders.length} orden(es)`, () => runDriverJson(argv, ctx.cwd, signal));
       const lines = (data.results || []).map((r: any) => {
         const mark = r.approved ? "✓" : r.status === "needs-approval" ? "⏳" : r.status === "needs-decision" ? "❓" : "✗";
         return `${mark} ${r.id}: ${r.status}${r.verdict ? ` ${r.verdict}` : ""} $${r.cost}${r.diff ? ` diff=${r.diff}` : ""}`;
@@ -226,6 +269,44 @@ export default function orchestraExtension(pi: ExtensionAPI) {
         return u ? `${a.role} ${a.name}: rolling=${u.rolling?.percent ?? "-"}% weekly=${u.weekly?.percent ?? "-"}% monthly=${u.monthly?.percent ?? "-"}%` : `${a.role} ${a.name}: sin datos`;
       });
       return { ...text(lines.length ? lines.join("\n") : "sin cuentas"), details: data };
+    },
+  });
+
+  pi.registerTool({
+    name: "orchestra_dashboard",
+    label: "Orchestra Dashboard",
+    description: "Vista compacta del loop: costos por rol/modelo, tareas y su estado (needs-approval/needs-decision), cuota por cuenta y worktrees abiertos.",
+    promptSnippet: "Ver el dashboard del loop (costos, tareas, cuota)",
+    parameters: Type.Object({}),
+    async execute(_id, _params, signal, _onUpdate, ctx) {
+      const lines = await spawnLines(["dashboard", "--once", "--plain"], ctx.cwd);
+      return { ...text(lines.length ? lines.join("\n") : "(sin datos)"), details: { lines } };
+    },
+  });
+
+  pi.registerCommand("orchestra-dashboard", {
+    description: "Muestra el dashboard del loop como widget (se actualiza cada 5s)",
+    handler: async (_args, ctx) => {
+      const cwd = (ctx as { cwd?: string }).cwd ?? process.cwd();
+      const render = async () => {
+        const lines = await spawnLines(["dashboard", "--once", "--plain", "--no-usage"], cwd);
+        try { (ctx as any).ui?.setWidget?.("orchestra", lines, { placement: "belowEditor" }); } catch { /* noop */ }
+        return lines;
+      };
+      await render();
+      const timer = setInterval(() => { render().catch(() => {}); }, 5000);
+      if (typeof timer.unref === "function") timer.unref();
+      (ctx as any).ui?.notify?.("orchestra dashboard on (Ctrl+C no lo apaga; /orchestra-dashboard-off)", "info");
+      dashboards.set(ctx, timer);
+    },
+  });
+
+  pi.registerCommand("orchestra-dashboard-off", {
+    description: "Oculta el widget del dashboard",
+    handler: async (_args, ctx) => {
+      const timer = dashboards.get(ctx);
+      if (timer) { clearInterval(timer); dashboards.delete(ctx); }
+      try { (ctx as any).ui?.setWidget?.("orchestra", undefined); } catch { /* noop */ }
     },
   });
 

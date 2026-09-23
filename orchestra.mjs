@@ -36,6 +36,7 @@ import { makeDeps, executeTask, scoutCommand, dispatchCommand, approveCommand, r
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
+import { runDashboard, renderDashboard, renderDashboardPlain } from './lib/dashboard.mjs';
 import { refreshRankings, rankingsStale, maxAgeHoursOf } from './lib/models.mjs';
 import { rankModels, configPatchFromRanking, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
@@ -262,6 +263,16 @@ async function selfTest() {
     return Math.abs(e.perTaskUsd - 0.3) < 1e-9 && Math.abs(e.usd - 0.9) < 1e-9 && e.source === 'ledger/avgPerTask';
   })());
   eq('estimateRemaining sin datos', estimateRemaining({ summary: {}, remainingTasks: 2 }).usd === null);
+  eq('renderDashboardPlain compacto', (() => {
+    const data = { summary: { cost: 1.5, events: 3, gateFails: 1, exhausted: 0 }, tasks: [{ id: 't1', status: 'approved', cost: 0.3, approved: true }], usage: [{ role: 'orchestrator', name: 'A', usage: { rolling: { percent: 4 }, weekly: { percent: 1 } } }] };
+    const l = renderDashboardPlain(data);
+    return l.length >= 2 && l[0].includes('orchestra') && l.join(' ').includes('A:r4%');
+  })());
+  eq('renderDashboard frame', (() => {
+    const data = { ts: 'now', summary: { cost: 0, byRole: { author: { calls: 1, cost: 0.1 } } }, tasks: [{ id: 't1', status: 'needs-approval', cycle: 2, cost: 0.1, decision: { reason: 'keys-exhausted' } }], usage: [], worktrees: [], branches: [], models: null, maxAgeHours: 24 };
+    const f = renderDashboard(data).join('\n');
+    return f.includes('POR ROL') && f.includes('t1') && f.includes('keys-exhausted');
+  })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -311,6 +322,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
 
   if (args.models) { if (args.json) flags.quiet = true; await runModelsCommand(args, config); return; }
   if (args.report) { if (args.json) flags.quiet = true; reportCommand(args); return; }
+  if (args.dashboard) { await runDashboard(args, config); return; }
   if (args.clean) { await cleanWorktrees(config, { force: args.force }); return; }
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
   if (args.keysCheck) { await checkKeys(config, { cwd: ROOT }); return; }

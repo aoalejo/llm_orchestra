@@ -196,6 +196,10 @@ try {
   const usg = orchestra(['usage', '--json'], tmp, ENV);
   check('usage --json responde', (() => { try { return Array.isArray(JSON.parse(usg.out).accounts); } catch { return false; } })(), usg.out.slice(0, 300));
 
+  // 9c. dashboard
+  const dash = orchestra(['dashboard', '--once', '--json'], tmp, ENV);
+  check('dashboard --once --json responde', (() => { try { const j = JSON.parse(dash.out); return Array.isArray(j.tasks) && typeof j.summary === 'object'; } catch { return false; } })(), dash.out.slice(0, 300));
+
   // 7. self-test del driver
   const st = orchestra(['--self-test'], tmp, ENV);
   check('--self-test pasa', st.code === 0, st.out.slice(-200));

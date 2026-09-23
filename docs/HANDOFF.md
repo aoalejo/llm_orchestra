@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **89/89 OK**; `node tests/smoke.mjs` → **35/35 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **91/91 OK**; `node tests/smoke.mjs` → **36/36 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -87,6 +87,9 @@
 35. **Estimador de costo** (`lib/cost.mjs`): `estimateRemaining` desde el ledger; cuando B se
     agota, `needs-decision` incluye `estimatedRemainingUsd`, `estimate` y `orchestratorQuota`
     para que el chat decida (A es última instancia).
+36. **Dashboard** (`lib/dashboard.mjs`): `orchestra dashboard` (TUI ANSI, fases 1) +
+    panel/widget dentro de pi (`orchestra_dashboard`, `/orchestra-dashboard`) que se refresca
+    mientras corre un dispatch (fase 2).
 
 ## Qué falta (para ejecutar el primer trabajo real)
 

@@ -16,6 +16,8 @@ Diseñado para trabajar en **cualquier proyecto** de la máquina: el runtime es 
 - **Scout con cache y proveedor externo**: `orchestra scout` reusa resultados por `git HEAD+query`
   y, si hay un server **SocratiCode** (MCP) disponible e indexado, lo usa como fuente
   (`scout.provider: auto|llm|socraticode`). Fallback a scout LLM si no está.
+- **Dashboard**: `orchestra dashboard [--interval 2]` (TUI en terminal) y panel/widget dentro de
+  pi que se refresca mientras el orquestador despacha.
 - **Workers baratos** rotando (default `qwen3.8-flash`, `mimo-v2.6-flash`, `deepseek-v4.1-flash`),
   elegidos por datos con `orchestra models`.
 - **Verificación adversa**: un modelo distinto al autor intenta *falsar*.
@@ -79,6 +81,7 @@ orchestra dispatch --order '{"goal":"...","acceptance":["..."],"scope":["src/...
 orchestra approve --task <id> --commit        # el chat aprueba e integra
 orchestra status --json                       # estado de tareas
 orchestra usage                               # % de cuota por cuenta
+orchestra dashboard [--interval 2]            # dashboard TUI (Ctrl+C para salir)
 orchestra models               # ranking de modelos (opencode-go + arena.ai)
 orchestra models --apply       # aplica la rotación recomendada a config.json
 orchestra --keys-status        # ver cuentas configuradas
