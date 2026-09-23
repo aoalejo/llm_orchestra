@@ -28,6 +28,7 @@ import {
 import { stubModel } from './lib/stub.mjs';
 import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor } from './lib/runner.mjs';
 import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList } from './lib/keys.mjs';
+import { checkKeys } from './lib/keys-check.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
 import { callOrchestrator, runTaskLoop, integrateTask } from './lib/loop.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
@@ -78,6 +79,10 @@ async function selfTest() {
   eq('pathsConflict prefijo real', pathsConflict('apps/backend/src/orders', 'apps/backend/src/orders/x.ts') === true);
   eq('pathsConflict distinto', pathsConflict('apps/mobile', 'apps/backend') === false);
   eq('detectExhausted ignora texto del modelo', detectExhausted({ stderr: '', text: 'el endpoint devuelve 402 Payment Required si no hay saldo' }) === false);
+  // Mensaje real de opencode-go cuando la cuenta se queda sin saldo
+  // (el 402 suele venir en el mismo string, pero no dependemos de eso).
+  eq('detectExhausted "Insufficient account funds"', detectExhausted({ errorMessage: 'Upstream request failed: Insufficient account funds' }) === true);
+  eq('detectExhausted "insufficient funds"', detectExhausted({ errorMessage: 'insufficient funds' }) === true);
   eq('detectExhausted detecta 429 en stderr', detectExhausted({ stderr: 'HTTP 429 Too Many Requests' }) === true);
   eq('detectExhausted detecta quota en errorMessage', detectExhausted({ errorMessage: 'Error: quota exceeded for this key' }) === true);
   eq('detectExhausted código de pagos no agota', detectExhausted({ stderr: 'ok', text: 'InsufficientFundsError: 402' }) === false);
@@ -226,6 +231,7 @@ async function main() {
   orchestra init [--force]          # scaffold .orchestra/ en el proyecto actual
   orchestra --self-test
   orchestra --keys-status
+  orchestra --keys-check             # llamada real por key: cuál responde y cuál está agotada
   orchestra models [--apply] [--json] [--refresh]
                                     # ranking de modelos (opencode + arena.ai)
   orchestra report [--json]         # costos y veredictos desde ledger.jsonl
@@ -234,7 +240,7 @@ async function main() {
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
-Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status
+Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status --keys-check
        models [--apply] [--json] --stub  report [--json]  --clean [--force]`);
     return;
   }
@@ -252,6 +258,7 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   if (args.report) { if (args.json) flags.quiet = true; reportCommand(args); return; }
   if (args.clean) { await cleanWorktrees(config, { force: args.force }); return; }
   if (args.keysStatus) { log('estado de credenciales:'); keysStatus(config); return; }
+  if (args.keysCheck) { await checkKeys(config, { cwd: ROOT }); return; }
 
   const runner = args.stub || process.env.ORCHESTRA_RUNNER === 'stub' ? 'stub' : 'real';
   const pi = runner === 'stub' ? { label: 'stub', command: 'stub', prefix: [], shell: false } : resolvePi(config);

@@ -1,6 +1,6 @@
 {
   "name": "llm-orchestra",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Lean Orchestrator: Ralph loop multi-modelo con verificación adversa, worktrees y rotación de cuentas, para pi.",
   "type": "module",
   "bin": {
@@ -11,9 +11,17 @@
     "test:unit": "node orchestra.mjs --self-test",
     "test:smoke": "node tests/smoke.mjs"
   },
-  "keywords": ["pi-package", "orchestrator", "multi-agent", "ralph-loop"],
+  "keywords": [
+    "pi-package",
+    "orchestrator",
+    "multi-agent",
+    "ralph-loop"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/aoalejo/llm_orchestra.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aoalejo/llm_orchestra.git"
+  },
   "files": [
     "orchestra.mjs",
     "lib",
@@ -32,7 +40,11 @@
     "node": ">=20"
   },
   "pi": {
-    "extensions": ["./extensions"],
-    "prompts": ["./prompts"]
+    "extensions": [
+      "./extensions"
+    ],
+    "prompts": [
+      "./prompts"
+    ]
   }
 }
