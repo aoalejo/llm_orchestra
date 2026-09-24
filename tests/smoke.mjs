@@ -125,6 +125,10 @@ try {
   check('--all marca t1 y t2 done', doneIds.includes('t1') && doneIds.includes('t2'), doneIds.join(','));
   check('--all commitea por tarea (commit + merge --no-ff)', afterAll - beforeAll === 4, `${afterAll - beforeAll} commits (esperados 4)`);
   check('--all no deja worktrees ni ramas', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
+  check('ledger registra scout/author/verifier (T-01)', (() => {
+    const roles = new Set(fs.readFileSync(path.join(O, 'ledger.jsonl'), 'utf8').trim().split('\n').map((l) => { try { return JSON.parse(l).role; } catch { return null; } }).filter(Boolean));
+    return roles.has('author') && roles.has('verifier') && roles.has('scout');
+  })());
   check('last-run.json coherente', (() => {
     const lr = readJson(path.join(O, 'runs', 'last-run.json'));
     return lr.results.length === 2 && lr.results.every((r) => r.approved === true && r.integration === true);

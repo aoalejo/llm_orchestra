@@ -24,11 +24,11 @@ import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
   shouldMetaReview, pathsConflict, detectExhausted,
-  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify,
+  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
-import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor } from './lib/runner.mjs';
-import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList } from './lib/keys.mjs';
+import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor, buildPiArgs } from './lib/runner.mjs';
+import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList, worstQuotaPct, orderPoolByQuota } from './lib/keys.mjs';
 import { checkKeys } from './lib/keys-check.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
 import { runTaskLoop, integrateTask } from './lib/loop.mjs';
@@ -272,6 +272,19 @@ async function selfTest() {
     const data = { ts: 'now', summary: { cost: 0, byRole: { author: { calls: 1, cost: 0.1 } } }, tasks: [{ id: 't1', status: 'needs-approval', cycle: 2, cost: 0.1, decision: { reason: 'keys-exhausted' } }], usage: [], worktrees: [], branches: [], models: null, maxAgeHours: 24 };
     const f = renderDashboard(data).join('\n');
     return f.includes('POR ROL') && f.includes('t1') && f.includes('keys-exhausted');
+  })());
+  eq('buildPiArgs usa --session-dir (T-09)', (() => {
+    const { args, sessionDir } = buildPiArgs({ provider: 'p', prompt: 'x', logFile: path.join('a', 'b', 'author.json'), role: 'author' });
+    return args.includes('--session-dir') && !args.includes('--no-session') && sessionDir.replace(/\\/g, '/').endsWith('a/b/sessions/author');
+  })());
+  eq('buildPiArgs noSession', buildPiArgs({ provider: 'p', prompt: 'x', noSession: true, logFile: path.join('a', 'b', 'x.json'), role: 'x' }).args.includes('--no-session'));
+  eq('changesScope (T-11)', changesScope(['src/a.ts'], ['src/']) === true && changesScope(['docs/x.md'], ['src/']) === false && changesScope([], ['src/']) === false && changesScope(['x'], []) === true);
+  eq('worstQuotaPct (T-07)', worstQuotaPct({ rolling: { percent: 10 }, monthly: { percent: 95 } }) === 95 && worstQuotaPct(null) === 0);
+  eq('orderPoolByQuota (T-07)', (() => {
+    const pool = [{ value: 'k1' }, { value: 'k2' }, { value: 'k3' }];
+    const q = { k1: { monthly: { percent: 50 } }, k2: { monthly: { percent: 10 } }, k3: { monthly: { percent: 99 } } };
+    const r = orderPoolByQuota(pool, q, 95).map((x) => x.value);
+    return r[0] === 'k2' && !r.includes('k3');
   })());
 
   const failed = t.filter((x) => !x.ok);
