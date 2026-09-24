@@ -23,7 +23,7 @@ import { loadEnv, readAgent } from './lib/agents.mjs';
 import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
-  shouldMetaReview, pathsConflict, detectExhausted, detectUnusableModel, blacklistModel,
+  shouldMetaReview, pathsConflict, detectExhausted, detectUnusableModel, blacklistModel, normalizeVerdict,
   normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
@@ -121,6 +121,11 @@ async function selfTest() {
   })());
 
   // Línea de comandos de Windows: prompt inline o @archivo (evita el "too long").
+  // Veredictos: los roles no siempre respetan PASS/FAIL (el security-reviewer
+  // devolvió "approve"/"pass"/undefined y el loop marcaba FAIL siempre).
+  eq('normalizeVerdict acepta sinónimos', ['PASS', 'pass', 'Approve', 'ok', 'approved'].every((v) => normalizeVerdict(v) === 'PASS'));
+  eq('normalizeVerdict default seguro', [undefined, null, '', 'FAIL', 'reject'].every((v) => normalizeVerdict(v) === 'FAIL'));
+
   eq('promptArgFor inline si entra', promptArgFor(['--x'], 'corto', null, { shell: true }) === 'corto');
   eq('promptArgFor inline con 20k sin shell', promptArgFor(['--x'], 'a'.repeat(20000), null, { shell: false }) === 'a'.repeat(20000));
   eq('promptArgFor @archivo si no entra (shell)', (() => {
