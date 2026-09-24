@@ -230,6 +230,8 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       yes: Type.Optional(Type.Boolean({ description: "aprobar rutas protegidas" })),
       dryRun: Type.Optional(Type.Boolean()),
       decisions: Type.Optional(Type.String({ description: "JSON de decisiones, ej. {\"keys\":\"use_orchestrator\"}" })),
+      detach: Type.Optional(Type.Boolean({ description: "correr en background y devolver runId (T-04)" })),
+      runId: Type.Optional(Type.String({ description: "id de run para seguirlo con orchestra_status" })),
     }),
     async execute(_id, params, signal, onUpdate, ctx) {
       const argv = ["dispatch"];
@@ -239,6 +241,12 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       if (params.yes) argv.push("--yes");
       if (params.dryRun) argv.push("--dry-run");
       if (params.decisions) argv.push("--decisions", params.decisions);
+      if (params.runId) argv.push("--run-id", params.runId);
+      if (params.detach) {
+        argv.push("--detach");
+        const { data } = await runDriverJson(argv, ctx.cwd, signal);
+        return { ...text(`dispatch detached: ${data.runId} (pid ${data.pid}). Seguí con orchestra_status run:${data.runId}. log=${data.log}`), details: data };
+      }
       onUpdate?.(text(`despachando ${params.orders.length} orden(es)...`));
       const { data } = await withProgress(ctx, ctx.cwd, onUpdate, `dispatch ${params.orders.length} orden(es)`, () => runDriverJson(argv, ctx.cwd, signal));
       const lines = (data.results || []).map((r: any) => {
@@ -295,11 +303,25 @@ export default function orchestraExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "orchestra_status",
     label: "Orchestra Status",
-    description: "Estado compacto de las tareas del loop (tasks.json + state.json: status, ciclos, costo, decisión pendiente).",
-    promptSnippet: "Ver estado de las tareas del loop y decisiones pendientes",
-    parameters: Type.Object({}),
-    async execute(_id, _params, signal, _onUpdate, ctx) {
-      const { data } = await runDriverJson(["status"], ctx.cwd, signal);
+    description: "Estado compacto de las tareas del loop, o de un run detached (run:'<id>' / runs:true).",
+    promptSnippet: "Ver estado de las tareas del loop, runs detached y decisiones pendientes",
+    parameters: Type.Object({
+      run: Type.Optional(Type.String({ description: "id de run detached (dispatch --detach)" })),
+      runs: Type.Optional(Type.Boolean({ description: "listar todos los runs" })),
+    }),
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      const argv = ["status"];
+      if (params?.run) argv.push("--run", params.run);
+      else if (params?.runs) argv.push("--runs");
+      const { data } = await runDriverJson(argv, ctx.cwd, signal);
+      if (params?.run) {
+        const tasks = (data.tasks || []).map((t: any) => `  ${t.id}: ${t.state} $${t.cost}`);
+        return { ...text([`run ${data.runId}: ${data.status} (pid ${data.pid})`, ...tasks].join("\n")), details: data };
+      }
+      if (params?.runs) {
+        const runs = (data.runs || []).map((r: any) => `${r.runId}: ${r.status} (${(r.orders || []).join(", ")})`);
+        return { ...text(runs.length ? runs.join("\n") : "sin runs"), details: data };
+      }
       const lines = (data.tasks || []).map((t: any) => `${t.id}: tasks=${t.status} state=${t.state} $${t.cost}${t.decision ? ` decision=${t.decision.reason}` : ""}`);
       return { ...text(lines.length ? lines.join("\n") : "sin tareas"), details: data };
     },

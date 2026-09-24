@@ -159,6 +159,11 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 - **`--clean`**: si un run murió con `SIGKILL`, corré `orchestra --clean` (deslinkea junctions
   antes de borrar). Nunca borres `.orchestra/worktrees/` a mano: un `git worktree remove`
   atraviesa el junction y borra el `node_modules` real.
+- **Guards** (`config.guards`): `denyRead`/`denyCommands` los aplica la extensión en `tool_call`
+  (sólo en subagentes) y loguea `<rol>.commands.log`. `verify.localOnly`/`task.localOnly` evita
+  mandar datos a la nube. Requiere recargar pi para que tomen efecto.
+- **`dispatch --detach`**: devuelve `runId` de inmediato (el loop sigue en background); seguilo con
+  `orchestra status --run <id>` (o `--runs`).
 - **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
   de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
 - `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.

@@ -30,3 +30,21 @@ en `STATE.md`, `tasks.json`, `ledger.jsonl` ni logs (el driver enmascara la key)
 ## Reportar
 
 Abrí un issue privado o contactá al mantenedor. No publiques la key filtrada.
+
+## Egress a proveedores (workers en la nube)
+
+Los workers corren con un modelo remoto, así que **lo que leen puede salir de tu máquina**.
+Desde el post-mortem 2026-09-24 hay guardarraíles:
+
+- `config.guards.denyRead` (globs): bloquea la **lectura** de `.orchestra/.env`, `**/.env`,
+  `**/*.pem`, `**/*.key`, `.ssh`, `.aws`, claves, etc. Se aplica en el hook `tool_call` de la
+  extensión (también en los `pi` headless de los workers).
+- `config.guards.denyCommands` (regex): bloquea comandos peligrosos (`taskkill`, `docker compose`,
+  `systemctl restart`, `run_proto`, …) y loguea cada comando en `<rol>.commands.log`.
+- `verify.localOnly: true` (o `task.localOnly`): la tarea **no llama a ningún modelo remoto** y
+  cierra en `needs-approval` para revisión humana.
+- El **lint de acceptance** avisa si una orden cita rutas protegidas, ignoradas por git o
+  inexistentes (fixtures/datos locales).
+
+Regla: **a la nube sólo viajan código y métricas agregadas**; nunca datos de clientes,
+`.env` ni bases/archivos ignorados por git.

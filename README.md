@@ -144,6 +144,14 @@ OPENCODE_GO_KEYS=key1,key2,key3      # o ["key1","key2"] o una sola key
 ## Seguridad
 
 - Los subagentes ejecutan `pi` con acceso a bash: tratá los agentes como código ejecutable.
+- **Guards de subagentes** (`config.guards`): `denyRead` (globs) impide a los workers **leer** rutas
+  sensibles (`.orchestra/.env`, `**/.env`, `**/*.pem`, `.ssh`, …) y `denyCommands` (regex) bloquea
+  comandos peligrosos (`taskkill`, `docker compose`, `systemctl restart`, `run_proto`, …). Los aplica
+  el hook `tool_call` de la extensión (sólo en subagentes) y loguea cada comando en
+  `<rol>.commands.log`. `enabled:false` los desactiva.
+- **Datos sensibles**: `verify.localOnly: true` (o `task.localOnly: true`) hace que la tarea
+  **no llame a ningún modelo remoto** y cierre en `needs-approval`; el dispatch además avisa si una
+  `acceptance` cita rutas protegidas, ignoradas por git o inexistentes.
 - Las rutas en `protectedPaths` requieren `--yes` (aprobación humana) para commitear.
 - **Este repo es público: nunca commitear credenciales.** Las keys van en `.orchestra/.env` del proyecto consumidor (ignorado por `.gitignore`). El archivo `templates/env.example` sólo tiene claves vacías.
 - Si una key se filtra, rotala en el proveedor y purgá el historial (`git filter-repo`).
