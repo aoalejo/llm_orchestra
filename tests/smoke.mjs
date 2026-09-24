@@ -49,7 +49,7 @@ const worktreesLeft = (cwd) => {
 
 /* ── setup ─────────────────────────────────────────────────────────────── */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-smoke-'));
-const ENV = { ...process.env, ORCHESTRA_STUB_TOUCH: '1', ORCHESTRA_RUNNER: '', ORCHESTRA_PI_CLI: '', ORCHESTRA_AGENTS_DIR: '' };
+const ENV = { ...process.env, ORCHESTRA_STUB_TOUCH: '1', ORCHESTRA_RUNNER: '', ORCHESTRA_PI_CLI: '', ORCHESTRA_AGENTS_DIR: '', ORCHESTRA_STUB_VERIFIER_ERROR: '' };
 delete ENV.OPENCODE_GO_KEY_ORCHESTRATOR;
 delete ENV.OPENCODE_GO_KEY_WORKER_1;
 delete ENV.OPENCODE_GO_KEY_WORKER_2;
@@ -96,6 +96,14 @@ try {
   check('dry-run no muta tasks.json', fs.readFileSync(path.join(O, 'tasks.json'), 'utf8') === tasksBefore);
   check('dry-run no commitea', commitCount(tmp) === base, `${commitCount(tmp)} vs ${base}`);
   check('dry-run queda needs-approval', readJson(path.join(O, 'runs', 't1', 'state.json')).status === 'needs-approval');
+
+  // 2b. Corte de transporte del proveedor (400) en un verifier: se reintenta con otro modelo EN EL
+  //     MISMO ciclo (no se pierde el diff del autor) en vez de contarlo como veredicto FAIL.
+  const retry = orchestra(['--task', 't2', '--stub', '--dry-run'], tmp, {
+    ...ENV, ORCHESTRA_STUB_VERIFIER_ERROR: 'deepseek-v4.1-flash',
+  });
+  check('reintenta la verificación tras un 400 del proveedor', /reintento con qwen3\.8-flash/.test(retry.all), retry.all.slice(-600));
+  check('el reintento conserva el ciclo (t2 termina needs-approval)', readJson(path.join(O, 'runs', 't2', 'state.json')).status === 'needs-approval', retry.all.slice(-300));
 
   // 3. protegida sin --yes → no integra
   const prot = orchestra(['--task', 't3', '--stub', '--commit'], tmp, ENV);

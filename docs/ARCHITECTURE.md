@@ -325,7 +325,10 @@ inexistentes (T-08).
 
 Todos los tickets T-01..T-12 están implementados:
 - **T-01** el ledger registra todos los roles (scout/author/verifier/security/merge/scribe).
-- **T-02** timeout del verifier = `UNKNOWN` + reintento (rota el modelo); no cierra en FAIL.
+- **T-02** timeout del verifier = `UNKNOWN` + reintento (rota el modelo); no cierra en FAIL. Un error
+  de **transporte** (400 del proveedor por contexto inflado) se reintenta con otro modelo **en el
+  mismo ciclo** antes de dar la verificación por perdida: así no se paga un ciclo de autor nuevo
+  (`verifyWithRetry`, y los roles ya no vuelcan `gate.log` entero).
 - **T-03** (a) diff vacío no gasta gate/verifier; (b) baseline de gates (`gates.baseline`): si el baseline
   está **ROJO** el loop corta en el ciclo 0 con `needs-decision` (`reason: gate-baseline-rojo`) en vez de
   quemar ciclos contra fallos preexistentes — el gate exige verde total y no los descuenta. Overrides:

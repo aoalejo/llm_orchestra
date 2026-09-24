@@ -18,6 +18,9 @@ Reglas duras:
    Si la tarea exige un E2E, corré **solo el spec que agregaste o tocaste**
    (`--testPathPattern=<archivo>`), y una sola vez.
 6. Dejá evidencia: para cada cambio, `archivo:línea` + por qué.
+7. **No repitas comandos ni vuelques logs enteros** (`cat` de `gate.log`, streams `.jsonl`, salidas
+   de e2e): inflan el contexto hasta que el proveedor corta la sesión con `400 event: error` y tu
+   entrega se pierde entera (ya pasó). Usá `grep -n`, `tail -n 40` o `read` con offset/limit.
 
 Formato de salida (obligatorio):
 ```
