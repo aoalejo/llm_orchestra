@@ -61,10 +61,9 @@
 
 ## Deuda técnica
 
-- **Adelgazar el entrypoint**: según el grafo de SocratiCode, `orchestra.mjs` sigue siendo el hub
-  más conectado (23 conexiones) por `selfTest`/`main`; se puede mover a `lib/selftest.mjs` y
+- **Entrypoint fino**: `selfTest` movido a `lib/selftest.mjs`; `orchestra.mjs` quedó en ~197 líneas.
   `lib/cli.mjs`.
-- Partir `lib/loop.mjs` en `author/verify/integrate` (opcional).
+- `lib/loop.mjs` partido en `author`/`verify`/`integrate` (383 líneas).
 - Cobertura de errores de red reales (timeouts de pi, respuestas truncadas) con un runner fake.
 
 ## Cambios de contrato

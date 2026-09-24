@@ -5,6 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchGlob, denyReadHit, denyCommandHit } from "../lib/guards.mjs";
 
 /**
  * Extensión de pi que expone el Lean Orchestrator.
@@ -30,20 +31,6 @@ const DRIVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", 
 // Timers de widget por contexto de comando (para poder apagarlo).
 const dashboards = new Map<any, any>();
 
-function globToRegExp(glob: string): RegExp {
-  const esc = String(glob).replace(/[.+^${}()|[\]\\]/g, "\\$&");
-  const re = esc.replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*");
-  return new RegExp(`^${re}$`, "i");
-}
-function matchGlob(p: string, g: string): boolean {
-  const pp = String(p || "").replace(/\\/g, "/").replace(/^\.\//, "");
-  const gg = String(g || "").replace(/\\/g, "/").replace(/^\.\//, "");
-  if (globToRegExp(gg).test(pp)) return true;
-  if (gg.startsWith("**/") && globToRegExp(gg.slice(3)).test(pp)) return true;
-  return false;
-}
-const denyReadHit = (p: string, pats: string[]) => (pats || []).some((g) => matchGlob(p, g));
-const denyCommandHit = (cmd: string, pats: string[]) => (pats || []).some((re) => { try { return new RegExp(re, "i").test(cmd); } catch { return false; } });
 function appendCommandLog(role: string, cmd: string) {
   const log = process.env.ORCHESTRA_LOG;
   if (!log) return;
@@ -353,7 +340,7 @@ export default function orchestraExtension(pi: ExtensionAPI) {
     promptSnippet: "Ver el dashboard del loop (costos, tareas, cuota)",
     parameters: Type.Object({}),
     async execute(_id, _params, signal, _onUpdate, ctx) {
-      const lines = await spawnLines(["dashboard", "--once", "--plain"], ctx.cwd);
+      const lines = await spawnLines(["dashboard", "--once", "--plain", "--no-usage"], ctx.cwd);
       return { ...text(lines.length ? lines.join("\n") : "(sin datos)"), details: { lines } };
     },
   });

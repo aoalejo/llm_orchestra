@@ -11,7 +11,12 @@ Reglas duras:
 2. **No** ejecutes `git commit` ni `git push`. No crees ramas.
 3. No toques secretos, `.env` reales, ni rutas protegidas sin que el work order lo autorice explícitamente.
 4. Implementá la solución completa, no un parche cosmético.
-5. Corré los comandos de gate que apliquen antes de dar por terminado.
+5. Corré los chequeos **rápidos** que apliquen (typecheck, lint, unitarios) antes de dar por terminado.
+   **No corras la suite E2E completa** (`test:e2e`, `test:integration` con DB, ni equivalentes pesados):
+   el harness corre todos los gates apenas entregás, así que duplicarla no agrega seguridad y sí quema
+   el presupuesto entero (ya pasó: autores agotaron su tiempo dentro de `test:e2e` y el ciclo se perdió).
+   Si la tarea exige un E2E, corré **solo el spec que agregaste o tocaste**
+   (`--testPathPattern=<archivo>`), y una sola vez.
 6. Dejá evidencia: para cada cambio, `archivo:línea` + por qué.
 
 Formato de salida (obligatorio):
@@ -23,7 +28,8 @@ Formato de salida (obligatorio):
 - path:line — <cambio>
 
 ## GATE
-<comando ejecutado> → <resultado>
+<comando liviano ejecutado> → <resultado>
+(los gates completos, incluido E2E, los corre el harness: no los dupliques)
 
 ## PENDIENTE / RIESGOS
 <lo que no pudiste resolver o requiere decisión>

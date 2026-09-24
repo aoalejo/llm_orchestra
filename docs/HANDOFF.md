@@ -95,7 +95,7 @@
 
 Nada de código: sólo **credenciales**.
 
-1. En el proyecto consumidor (ej. `gastronomia-monorepo`):
+1. En tu proyecto consumidor:
    ```bash
    cp .orchestra/env.example .orchestra/.env
    # OPENCODE_GO_KEY_ORCHESTRATOR = cuenta A
@@ -104,7 +104,7 @@ Nada de código: sólo **credenciales**.
 2. `orchestra --keys-status` debe mostrar A y B cargadas (enmascaradas).
    `orchestra --keys-check` además prueba cada una con una llamada real y avisa
    si alguna quedó sin saldo (`insufficient funds`).
-3. `orchestra --task p0-manual-payment-approval --dry-run` para validar el flujo sin commitear.
+3. `orchestra --task <id> --dry-run` para validar el flujo sin commitear.
 
 ## Decisiones tomadas con el usuario (no re-litigar)
 
@@ -115,22 +115,8 @@ Nada de código: sólo **credenciales**.
 5. Repo **público** → nunca commitear credenciales.
 6. Rotación de cuentas: orquestador en A, workers en B (así el orquestador sobrevive si B se agota).
 
-## Próximo trabajo sugerido (P0 de Paisanitos)
-
-El primer backlog vive en el repo consumidor, no acá:
-`gastronomia-monorepo/.orchestra/tasks.json` y `docs/plan/CUMPLIMIENTO-ANEXO-v1.6.md`.
-
-Orden sugerido (los de código, sin depender de credenciales externas):
-1. `p0-manual-payment-approval` (fix de correctitud)
-2. `p0-modifier-price-validation` (seguridad)
-3. `p0-customer-cancel`
-4. `p0-backoffice-recovery`
-5. `p0-delivery-zone-validation`
-6. `p0-stock-reservation` / `p0-order-idempotency`
-
 ## Preguntas abiertas para el humano
 
-- ¿Se commitea el scaffold de `.orchestra/` + docs en gastronomía? (hoy untracked)
 - ¿Quién valida QA además del gate + verificación adversa?
 
 ## Cómo correr el orchestrator (resumen)
@@ -167,3 +153,12 @@ Implementados **T-01..T-12** (ver `docs/ARCHITECTURE.md` §18 y `docs/TICKETS.md
 rol, verifier timeout reintentable, diff vacío/baseline de gates, `dispatch --detach`,
 guards de egress/contención, keys-check 402/429 + `/usage`, keys por cuota, lint de
 acceptance, `--session-dir` (SoL-Pi), validación del scout y `gates.requireChangedFiles`.
+
+## Grill P1/P2 (2026-09-24)
+
+- **P1**: `selfTest` extraído a `lib/selftest.mjs` (`orchestra.mjs` 489→197 líneas); T-09
+  verificado (con `--no-session` SoL-Pi tira error, con `--session-dir` no); `status --run`
+  marca runs muertos (`dead`); `guards.denyRead` permite `.env.example/.sample/.template`;
+  cache de `/usage` a 10 min (`keys.usageCacheMs`) y la tool `orchestra_dashboard` usa `--no-usage`.
+- **P2**: la extensión importa el matcher de `lib/guards.mjs` (sin duplicarlo); `lib/loop.mjs`
+  partido en `author`/`verify`/`integrate`; se quitó el backlog downstream (Paisanitos) del HANDOFF.

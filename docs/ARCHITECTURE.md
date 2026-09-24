@@ -203,7 +203,7 @@ y se aplican los pools solos, con backup en `config.json.bak`. Ponelo en `false`
 
 ## 12. Layout de módulos (`lib/`)
 
-`orchestra.mjs` es sólo el entrypoint/CLI (`init`, `models`, `report`, `selfTest`, `main`).
+`orchestra.mjs` es sólo el entrypoint/CLI (`init`, `models`, `report`, `main`).
 La lógica vive en módulos chicos:
 
 | Módulo | Qué contiene |
@@ -219,6 +219,8 @@ La lógica vive en módulos chicos:
 | `worktrees.mjs` | `prepareWorktree`/`removeWorktree`, enlace de deps, señales. |
 | `keys.mjs` | Pool A/B: `makeKeyState`, `pickKey`, `keysStatus`. |
 | `loop.mjs` | `callScout`/`callVerifier`, `runTaskLoop` (modo chat: `needs-approval`/`needs-decision`), `integrateTask`. |
+| `author.mjs` / `verify.mjs` / `integrate.mjs` | Autor, verificación adversaria e integración (extraídos de `loop`). |
+| `selftest.mjs` | Self-test de lógica pura (fuera del entrypoint). |
 | `commands.mjs` | Subcomandos de chat: `scoutCommand`, `dispatchCommand`, `approveCommand`, `rejectCommand`, `statusCommand`, `executeTask`. |
 | `report.mjs` | `readLedger`, `summarizeLedger`, `reportCommand`. |
 | `modelscmd.mjs` | `runModelsCommand`, `applyAndSaveRanking`. |
