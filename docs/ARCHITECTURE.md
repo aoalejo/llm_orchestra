@@ -326,7 +326,10 @@ inexistentes (T-08).
 Todos los tickets T-01..T-12 están implementados:
 - **T-01** el ledger registra todos los roles (scout/author/verifier/security/merge/scribe).
 - **T-02** timeout del verifier = `UNKNOWN` + reintento (rota el modelo); no cierra en FAIL.
-- **T-03** (a) diff vacío no gasta gate/verifier; (b) baseline de gates (`gates.baseline`).
+- **T-03** (a) diff vacío no gasta gate/verifier; (b) baseline de gates (`gates.baseline`): si el baseline
+  está **ROJO** el loop corta en el ciclo 0 con `needs-decision` (`reason: gate-baseline-rojo`) en vez de
+  quemar ciclos contra fallos preexistentes — el gate exige verde total y no los descuenta. Overrides:
+  `decisions:{gate:"continue"}` o `gates.allowRedBaseline:true` (`baselinePolicy` en `lib/pure.mjs`).
 - **T-04** `dispatch --detach` (proceso detached) + `status --run <id>` / `--runs`.
 - **T-05** guards de egress (`lib/guards.mjs` + hook `tool_call`) y `verify.localOnly`.
 - **T-06** `--keys-check` en paralelo, clasifica 402 (saldo) vs 429 (cuota) y cruza `/usage`.

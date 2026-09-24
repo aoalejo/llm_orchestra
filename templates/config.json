@@ -108,8 +108,11 @@
   "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
 
   "gates": {
-    "$comment": "Comandos que se corren desde la raíz del proyecto (o el worktree). Reemplazá los targets por los de tu stack; cada tarea los referencia en 'targets'. Las claves que no son arrays ($comment, timeoutMs) se ignoran.",
+    "$comment": "Comandos que se corren desde la raíz del proyecto (o el worktree). Reemplazá los targets por los de tu stack; cada tarea los referencia en 'targets'. Las claves que no son arrays ($comment, timeoutMs, baseline, allowRedBaseline) se ignoran.",
     "timeoutMs": 1200000,
+    "baseline": true,
+    "$comment_baseline": "Baseline de gates sobre el worktree limpio. Si está ROJO, el loop corta en el ciclo 0 con needs-decision (reason gate-baseline-rojo): el gate exige verde total y ningún ciclo puede arreglar fallos preexistentes. Para correr igual (baseline rojo conocido): reintentá con decisions:{gate:\"continue\"} o poné allowRedBaseline:true acá.",
+    "allowRedBaseline": false,
     "example": ["npm run lint", "npm run build", "npm test -- --run"]
   },
 
