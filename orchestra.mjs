@@ -77,6 +77,18 @@ async function selfTest() {
   const wo = workOrderText({ id: 'x', title: 'T', risk: 'high', contractRef: '1', targets: ['backend'], scope: ['a.ts'], acceptance: ['pasa'] }, {});
   eq('workOrderText incluye acceptance', wo.includes('pasa') && wo.includes('a.ts'));
   eq('pickAuthorVerifier distintos', (() => { const c = { roles: { author: ['m1', 'm2'], verifier: ['m1', 'm2'] } }; const r = pickAuthorVerifier(c, 1, 4); return r.author !== r.verifier; })());
+  // ADR 0005: sin escalado automático a modelos caros.
+  eq('pickAuthorVerifier no escala solo (default)', (() => {
+    const c = { roles: { author: ['a1', 'a2'], verifier: ['v1', 'v2'], escalationAuthor: 'caro', escalationVerifier: 'caro2' }, loop: {} };
+    const r = pickAuthorVerifier(c, 4, 4);
+    return r.author !== 'caro' && r.verifier !== 'caro2';
+  })());
+  eq('pickAuthorVerifier escala si autoEscalate', (() => {
+    const c = { roles: { author: ['a1', 'a2'], verifier: ['v1', 'v2'], escalationAuthor: 'caro', escalationVerifier: 'caro2' }, loop: { autoEscalate: true } };
+    const r = pickAuthorVerifier(c, 4, 4);
+    return r.author === 'caro' && r.verifier === 'caro2' && r.last === true;
+  })());
+
   eq('shouldMetaReview highRisk', shouldMetaReview({ metaReview: { enabled: true, alwaysForHighRisk: true } }, true) === true);
   eq('shouldMetaReview sample', shouldMetaReview({ metaReview: { enabled: true, sampleRate: 0 } }, false, () => 0.5) === false);
   eq('stub orchestrator APPROVE', JSON.parse(stubModel({ role: 'orchestrator', prompt: 'Aprobá' }).text).decision === 'APPROVE');
