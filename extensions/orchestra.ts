@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -28,6 +29,28 @@ const DRIVER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", 
 
 // Timers de widget por contexto de comando (para poder apagarlo).
 const dashboards = new Map<any, any>();
+
+function globToRegExp(glob: string): RegExp {
+  const esc = String(glob).replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const re = esc.replace(/\*\*/g, "\u0000").replace(/\*/g, "[^/]*").replace(/\u0000/g, ".*");
+  return new RegExp(`^${re}$`, "i");
+}
+function matchGlob(p: string, g: string): boolean {
+  const pp = String(p || "").replace(/\\/g, "/").replace(/^\.\//, "");
+  const gg = String(g || "").replace(/\\/g, "/").replace(/^\.\//, "");
+  if (globToRegExp(gg).test(pp)) return true;
+  if (gg.startsWith("**/") && globToRegExp(gg.slice(3)).test(pp)) return true;
+  return false;
+}
+const denyReadHit = (p: string, pats: string[]) => (pats || []).some((g) => matchGlob(p, g));
+const denyCommandHit = (cmd: string, pats: string[]) => (pats || []).some((re) => { try { return new RegExp(re, "i").test(cmd); } catch { return false; } });
+function appendCommandLog(role: string, cmd: string) {
+  const log = process.env.ORCHESTRA_LOG;
+  if (!log) return;
+  try {
+    fs.appendFileSync(path.join(path.dirname(log), `${role || "worker"}.commands.log`), `${new Date().toISOString()} ${cmd.replace(/\s+/g, " ").slice(0, 300)}\n`);
+  } catch { /* noop */ }
+}
 
 function runDriver(argv: string[], cwd: string, signal?: AbortSignal): Promise<number> {
   return new Promise((resolve) => {
@@ -116,6 +139,35 @@ async function withProgress(ctx: any, cwd: string, onUpdate: any, label: string,
 const text = (s: string) => ({ content: [{ type: "text" as const, text: s }] });
 
 export default function orchestraExtension(pi: ExtensionAPI) {
+  // Guards para subagentes (T-05/T-12): la extensión se carga también en los `pi`
+  // headless, así que este hook aplica a los workers. Sólo actúa si el driver
+  // exportó ORCHESTRA_ROLE (evita tocar tu sesión interactiva).
+  pi.on("tool_call", async (event: any) => {
+    const role = process.env.ORCHESTRA_ROLE;
+    if (!role) return;
+    let guards: any = {};
+    try { guards = JSON.parse(process.env.ORCHESTRA_GUARDS || "{}"); } catch { return; }
+    const input: any = event?.input || {};
+    if (event?.toolName === "bash") {
+      const cmd = String(input.command || "");
+      if (guards.denyCommands?.length && denyCommandHit(cmd, guards.denyCommands)) {
+        return { block: true, reason: `[orchestra] comando bloqueado por guards (rol ${role})` };
+      }
+      for (const g of guards.denyRead || []) {
+        const token = String(g).replace(/\*+/g, "").replace(/^\/+/, "");
+        if (token.includes("/") && token.length >= 6 && cmd.includes(token)) {
+          return { block: true, reason: `[orchestra] bash toca ruta denegada (${token})` };
+        }
+      }
+      if (guards.logCommands) appendCommandLog(role, cmd);
+    }
+    const p = input.path || input.pattern || input.query || input.file || "";
+    if (p && guards.denyRead?.length && denyReadHit(String(p), guards.denyRead)) {
+      return { block: true, reason: `[orchestra] lectura denegada por guards: ${p}` };
+    }
+    return;
+  });
+
   pi.registerCommand("orchestra", {
     description: "Lean Orchestrator: init / models / report / --clean / --self-test (multi-modelo)",
     getArgumentCompletions: (prefix) => {

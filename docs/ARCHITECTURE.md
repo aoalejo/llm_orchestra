@@ -303,3 +303,18 @@ o parar. La cuenta A es **última instancia**.
 
 Los renderers (`renderDashboard`, `renderDashboardPlain`) son puros y reciben el objeto de
 `gatherDashboard` (ledger + state.json + `/usage` + git).
+
+## 17. Guardarraíles de subagentes (egress / contención)
+
+`lib/guards.mjs` define `denyRead` (globs) y `denyCommands` (regex) con defaults
+(`.orchestra/.env*`, `**/.env`, `**/*.pem`, `**/.ssh/**`, `taskkill`, `docker compose`,
+`systemctl restart`, `run_proto`, ...). El driver los exporta por env (`ORCHESTRA_GUARDS`)
+y pasa `ORCHESTRA_ROLE`/`ORCHESTRA_LOG` a cada `pi` headless; la extensión los aplica en
+`pi.on("tool_call")`: bloquea la lectura de rutas denegadas y comandos peligrosos, y
+loguea cada comando en `<rol>.commands.log`. Sólo actúa cuando existe `ORCHESTRA_ROLE`
+(no toca tu sesión interactiva).
+
+Para datos sensibles: `verify.localOnly` (o `task.localOnly`) **omite la verificación
+remota** y cierra en `needs-approval`; el **lint de acceptance** (`lib/guards.mjs`,
+`lintAcceptance`) avisa si una orden cita rutas protegidas, ignoradas por git o
+inexistentes (T-08).

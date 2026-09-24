@@ -37,6 +37,7 @@ import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
 import { runDashboard, renderDashboard, renderDashboardPlain } from './lib/dashboard.mjs';
+import { matchGlob, denyReadHit, denyCommandHit, extractPaths, lintAcceptance, exportGuards } from './lib/guards.mjs';
 import { refreshRankings, rankingsStale, maxAgeHoursOf } from './lib/models.mjs';
 import { rankModels, configPatchFromRanking, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
@@ -286,6 +287,16 @@ async function selfTest() {
     const r = orderPoolByQuota(pool, q, 95).map((x) => x.value);
     return r[0] === 'k2' && !r.includes('k3');
   })());
+  eq('matchGlob **/.env', matchGlob('a/.env', '**/.env') === true && matchGlob('.env', '**/.env') === true);
+  eq('matchGlob .orchestra/.env', matchGlob('.orchestra/.env', '.orchestra/.env') === true && matchGlob('.orchestra/config.json', '.orchestra/.env') === false);
+  eq('denyReadHit (T-05)', denyReadHit('x/y.pem', ['**/*.pem']) === true && denyReadHit('src/a.ts', ['**/*.pem']) === false);
+  eq('denyCommandHit (T-12)', denyCommandHit('docker compose restart api', ['docker\\s+compose\\s+(up|down|restart|stop)']) === true && denyCommandHit('npm test', ['taskkill']) === false);
+  eq('exportGuards defaults/off', exportGuards({}).denyRead.length > 0 && exportGuards({ guards: { enabled: false } }) === null);
+  eq('extractPaths', extractPaths('correr contra lab/proto/proto.db y listo').includes('lab/proto/proto.db'));
+  eq('lintAcceptance (T-08)', (() => {
+    const r = lintAcceptance({ task: { acceptance: ['correr lab/proto/proto.db'] }, protectedPaths: [], isIgnored: (p) => p.includes('proto.db'), exists: () => true });
+    return r.warnings.some((w) => /ignorada/.test(w));
+  })());
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);
@@ -330,6 +341,8 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   flags.verbose = args.verbose;
   if (args.json) flags.quiet = true;   // sólo salida máquina en stdout
   setPiTimeout(config.loop?.piTimeoutMs);   // timeout de cada llamada a pi
+  process.env.ORCHESTRA_ROOT = ROOT;        // para los guards de la extensión (T-05/T-12)
+  process.env.ORCHESTRA_GUARDS = JSON.stringify(exportGuards(config) || {});
   loadEnv(path.join(O, '.env'));            // antes de resolvePi: ORCHESTRA_PI_CLI puede venir del .env
   ensureDir(RUNS); ensureDir(SCRATCH); ensureDir(WORKTREES);
 

@@ -117,6 +117,18 @@
     "src/payments/"
   ],
 
+  "guards": {
+    "$comment": "Guardarraíles para subagentes (hook tool_call de la extensión). denyRead/denyCommands: null = defaults.",
+    "enabled": true,
+    "logCommands": true,
+    "blockConfidential": false,
+    "lintAcceptance": true,
+    "denyRead": null,
+    "denyCommands": null
+  },
+
+  "verify": { "localOnly": false },
+
   "commit": {
     "onlyOrchestrator": true,
     "convention": "conventional",
