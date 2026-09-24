@@ -180,6 +180,19 @@ try {
   check('dispatch multi-orden marca done', doneAfterBatch.includes('b1') && doneAfterBatch.includes('b2'), doneAfterBatch.join(','));
   check('dispatch multi-orden limpia worktrees', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
 
+  // 8c. T-04: dispatch --detach devuelve runId y status --run refleja el avance
+  const det = orchestra(['dispatch', '--order', JSON.stringify({ id: 'd1', goal: 'detach', acceptance: ['x'], scope: ['stub-*'] }), '--stub', '--detach', '--json'], tmp, ENV);
+  let detRunId = null;
+  try { detRunId = JSON.parse(det.out).runId; } catch { /* noop */ }
+  check('dispatch --detach devuelve runId', !!detRunId && /^batch-/.test(detRunId), det.out.slice(0, 200));
+  let runSt = null;
+  for (let i = 0; i < 15 && detRunId; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    try { runSt = JSON.parse(orchestra(['status', '--run', detRunId, '--json'], tmp, ENV).out); } catch { /* noop */ }
+    if (runSt && runSt.status === 'done') break;
+  }
+  check('status --run refleja el avance', !!runSt && runSt.status === 'done' && (runSt.tasks || []).length === 1, JSON.stringify(runSt).slice(0, 250));
+
   // 9. scout con SocratiCode (fake MCP server) + cache + fallback
   const fakeMcp = path.join(HERE, 'helpers', 'fake-mcp.mjs');
   const cfgPath = path.join(O, 'config.json');

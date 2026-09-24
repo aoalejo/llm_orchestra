@@ -24,7 +24,7 @@ import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
   shouldMetaReview, pathsConflict, detectExhausted,
-  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope,
+  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
 import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor, buildPiArgs } from './lib/runner.mjs';
@@ -41,7 +41,7 @@ import { matchGlob, denyReadHit, denyCommandHit, extractPaths, lintAcceptance, e
 import { refreshRankings, rankingsStale, maxAgeHoursOf } from './lib/models.mjs';
 import { rankModels, configPatchFromRanking, modelFamily, bestArenaMatch, idVariants } from './lib/rank.mjs';
 import { matchModel } from './lib/leaderboard.mjs';
-import { scoutCacheKey, socraticodeOptions, buildScoutPrompt } from './lib/scout.mjs';
+import { scoutCacheKey, socraticodeOptions, buildScoutPrompt, looksLikeMap } from './lib/scout.mjs';
 import { parseUsage, quotaStatus } from './lib/usage.mjs';
 import { estimateRemaining } from './lib/cost.mjs';
 
@@ -297,6 +297,8 @@ async function selfTest() {
     const r = lintAcceptance({ task: { acceptance: ['correr lab/proto/proto.db'] }, protectedPaths: [], isIgnored: (p) => p.includes('proto.db'), exists: () => true });
     return r.warnings.some((w) => /ignorada/.test(w));
   })());
+  eq('classifyExhaustion fondos/cuota/auth (T-06)', classifyExhaustion({ errorMessage: '402 Insufficient account funds' }) === 'funds' && classifyExhaustion({ stderr: '429 Too Many Requests' }) === 'quota' && classifyExhaustion({ stderr: '401 Unauthorized' }) === 'auth' && classifyExhaustion({ stderr: 'ok' }) === null);
+  eq('looksLikeMap (T-10)', looksLikeMap('- lib/rank.mjs:12 — arma pools') === true && looksLikeMap('I need to look at the header structure then add a GET endpoint') === false);
 
   const failed = t.filter((x) => !x.ok);
   for (const x of t) console.log(`${x.ok ? '✓' : '✗'} ${x.name}`);

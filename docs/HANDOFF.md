@@ -7,7 +7,7 @@
 - **Paquete v0.2.1**, publicado en `https://github.com/aoalejo/llm_orchestra` (público, rama `main`, tags `v0.2.0` y `v0.2.1`).
 - Instalado en pi global (`~/.pi/agent/settings.json` → `"F:\\Proyectos\\orchestra"`).
 - `pi list` lo muestra; `pi --list-models` carga sin errores (extensión + prompts válidos).
-- `node orchestra.mjs --self-test` → **91/91 OK**; `node tests/smoke.mjs` → **36/36 OK** (`npm test`).
+- `node orchestra.mjs --self-test` → **105/105 OK**; `node tests/smoke.mjs` → **39/39 OK** (`npm test`).
 - **CI** en GitHub Actions (`.github/workflows/ci.yml`): self-test + smoke en ubuntu/windows × node 20/22.
 - Runtime v2 completo: worktrees paralelos, merge agent, scout, anti-loop, meta-review,
   presupuesto (costo + tokens), resume, rotación de cuentas A/B, `--keys-status`, `orchestra init`.
@@ -160,3 +160,10 @@ git push origin main --tags
 # en cada PC
 pi update --extensions
 ```
+
+## Tickets post-mortem (2026-09-24)
+
+Implementados **T-01..T-12** (ver `docs/ARCHITECTURE.md` §18 y `docs/TICKETS.md`): ledger por
+rol, verifier timeout reintentable, diff vacío/baseline de gates, `dispatch --detach`,
+guards de egress/contención, keys-check 402/429 + `/usage`, keys por cuota, lint de
+acceptance, `--session-dir` (SoL-Pi), validación del scout y `gates.requireChangedFiles`.

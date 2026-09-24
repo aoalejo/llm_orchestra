@@ -18,8 +18,8 @@ compacto**, con **verificación adversa** y **rotación de cuentas**.
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 91/91 (lógica pura)
-node tests/smoke.mjs                  # 36/36 (ciclo completo, repo temporal, sin red)
+node orchestra.mjs --self-test        # 105/105 (lógica pura)
+node tests/smoke.mjs                  # 39/39 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
 
@@ -135,7 +135,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 91/91 + smoke 36/36). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 105/105 + smoke 39/39). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
@@ -153,7 +153,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (91 casos); `tests/smoke.mjs` valida el ciclo (36 invariantes).
+- El `selfTest` no usa red ni keys (105 casos); `tests/smoke.mjs` valida el ciclo (39 invariantes).
 - **Timeout de pi**: `loop.piTimeoutMs` (default 15 min). Al vencer mata el árbol y deja
   `<rol>.json` (con `timedOut:true`), `<rol>.stream.jsonl`, `<rol>.stderr.log` y `heartbeat.json`.
 - **`--clean`**: si un run murió con `SIGKILL`, corré `orchestra --clean` (deslinkea junctions

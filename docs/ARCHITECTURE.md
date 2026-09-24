@@ -318,3 +318,22 @@ Para datos sensibles: `verify.localOnly` (o `task.localOnly`) **omite la verific
 remota** y cierra en `needs-approval`; el **lint de acceptance** (`lib/guards.mjs`,
 `lintAcceptance`) avisa si una orden cita rutas protegidas, ignoradas por git o
 inexistentes (T-08).
+
+## 18. Tickets post-mortem (2026-09-24) — resueltos
+
+Todos los tickets T-01..T-12 están implementados:
+- **T-01** el ledger registra todos los roles (scout/author/verifier/security/merge/scribe).
+- **T-02** timeout del verifier = `UNKNOWN` + reintento (rota el modelo); no cierra en FAIL.
+- **T-03** (a) diff vacío no gasta gate/verifier; (b) baseline de gates (`gates.baseline`).
+- **T-04** `dispatch --detach` (proceso detached) + `status --run <id>` / `--runs`.
+- **T-05** guards de egress (`lib/guards.mjs` + hook `tool_call`) y `verify.localOnly`.
+- **T-06** `--keys-check` en paralelo, clasifica 402 (saldo) vs 429 (cuota) y cruza `/usage`.
+- **T-07** `pickKey` prioriza por cuota (`keys.maxQuotaPct`).
+- **T-08** lint de acceptance (rutas protegidas/gitignored/inexistentes).
+- **T-09** `--session-dir` efímero (SoL-Pi) en vez de `--no-session`.
+- **T-10** validación del mapa del scout (`looksLikeMap`) + reintento; no cachea basura.
+- **T-11** `gates.requireChangedFiles`.
+- **T-12** guard de comandos peligrosos + log `<rol>.commands.log`.
+
+Además, la creación/borrado de worktrees se serializa con la cola `git` (evita carreras
+entre tareas paralelas).
