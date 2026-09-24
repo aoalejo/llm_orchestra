@@ -153,7 +153,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 - Si corrés sin `--commit`, el worktree y su rama se **conservan** para inspección (a propósito).
 - `--stub` no corre gates reales ni genera diff. Con `ORCHESTRA_STUB_TOUCH=1` el author stub
   deja un cambio real, así se ejercita commit + merge (es lo que hace `tests/smoke.mjs`).
-- El `selfTest` no usa red ni keys (105 casos); `tests/smoke.mjs` valida el ciclo (39 invariantes).
+- El `selfTest` no usa red ni keys (110 casos); `tests/smoke.mjs` valida el ciclo (39 invariantes).
 - **Timeout de pi**: `loop.piTimeoutMs` (default 15 min). Al vencer mata el árbol y deja
   `<rol>.json` (con `timedOut:true`), `<rol>.stream.jsonl`, `<rol>.stderr.log` y `heartbeat.json`.
 - **`--clean`**: si un run murió con `SIGKILL`, corré `orchestra --clean` (deslinkea junctions
