@@ -9,7 +9,7 @@
   quedan para humano.
 - **Detección de agotamiento heurística** (regex sobre errores): puede dar falsos positivos/negativos
   (mitigado porque sólo mira transporte, no el texto del modelo).
-- **Tests**: self-test de lógica pura (105 casos) + `tests/smoke.mjs` (39 invariantes del ciclo
+- **Tests**: self-test de lógica pura (117 casos) + `tests/smoke.mjs` (39 invariantes del ciclo
   completo con runner stub en un repo temporal), ambos en CI. Falta cobertura de los caminos
   con red real (pi/provider) y de resolución de conflictos complejos del merge-agent.
 - **Sin provider además de `opencode-go` cableado** (aunque `provider` es config).

@@ -28,10 +28,12 @@
   },
 
   "loop": {
+    "$comment": "autoEscalate: usar el par de modelos caros en el ultimo ciclo. Default false (ADR 0005).",
     "maxCycles": 4,
     "maxParallelTasks": 4,
     "doubleVerifyHighRisk": true,
     "highRiskLevels": ["high", "critical"],
+    "autoEscalate": false,
     "piTimeoutMs": 900000
   },
 

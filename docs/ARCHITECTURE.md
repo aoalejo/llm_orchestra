@@ -33,7 +33,7 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
   "keys": { "orchestrator": "ENV_A", "workers": "OPENCODE_GO_KEYS" },
   "roles": { "author": [...], "verifier": [...], ... },
   "fallback": { "models": [...], "askOrchestratorOnExhaustion": true },
-  "loop": { "maxCycles": 4, "maxParallelTasks": 4, "doubleVerifyHighRisk": true, "highRiskLevels": ["high","critical"] },
+  "loop": { "maxCycles": 4, "maxParallelTasks": 4, "doubleVerifyHighRisk": true, "highRiskLevels": ["high","critical"], "autoEscalate": false },
   "worktrees": { "enabled": true, "dir": ".orchestra/worktrees", "linkNodeModules": true },
   "integration": { "strategy": "merge-branch", "branchPrefix": "orchestra/", "mergeAgent": true },
   "scout": { "enabled": true },
@@ -50,7 +50,7 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
 1. **Resume**: si `runs/<task>/state.json` existe y está `approved`, salta; si está `in-progress`, continúa del ciclo guardado.
 2. **Scout** (una vez): comprime el mapa de contexto; se guarda en `state.scoutMap`.
 3. **Ciclo 1..maxCycles**:
-   a. Elegir `{author, verifier}` con `pickAuthorVerifier` — rotan por ciclo y el verifier **nunca** es el author; el último ciclo usa los modelos de escalado.
+   a. Elegir `{author, verifier}` con `pickAuthorVerifier` — rotan por ciclo y el verifier **nunca** es el author; el último ciclo usa el par de escalado solo si loop.autoEscalate=true (ADR 0005); por defecto sigue rotando baratos.
    b. **Author**: corre con `workOrderText(task)` + mapa del scout. Suma costo.
    c. **Presupuesto**: si supera `budget.maxUsdPerTask`, `maxInputTokensPerTask` o `maxOutputTokensPerTask`, marca `blocked` y sale. Se chequea tras el autor y tras la verificación.
    d. **Gate determinista**: corre todos los comandos del `targets` (o todos si no hay). Si rojo → siguiente ciclo (sin gastar verifier LLM).

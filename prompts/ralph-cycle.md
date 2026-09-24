@@ -1,5 +1,5 @@
 ---
-description: Ciclo Ralph con verificación adversa (modo chat: el orquestador sos vos)
+description: "Ciclo Ralph con verificación adversa (modo chat: el orquestador sos vos)"
 ---
 Despachá trabajo al Lean Orchestrator para `$ARGUMENTS`.
 

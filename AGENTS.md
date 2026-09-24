@@ -18,7 +18,7 @@ compacto**, con **verificación adversa** y **rotación de cuentas**.
 
 ```bash
 # Verificar el runtime
-node orchestra.mjs --self-test        # 105/105 (lógica pura)
+node orchestra.mjs --self-test        # 117/117 (lógica pura)
 node tests/smoke.mjs                  # 39/39 (ciclo completo, repo temporal, sin red)
 npm test                              # ambos
 node orchestra.mjs --help
@@ -135,7 +135,7 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
 
 ## Cómo trabajar acá (agente nuevo)
 
-1. Corré `npm test` (self-test 105/105 + smoke 39/39). Si no pasa, arreglá eso primero.
+1. Corré `npm test` (self-test 117/117 + smoke 39/39). Si no pasa, arreglá eso primero.
 2. Para tocar código: implementá + agregá caso al `selfTest()` (lógica pura) o al
    `tests/smoke.mjs` (comportamiento del ciclo) + corré `npm test`.
 3. Respetá la invariante "solo el orquestador commitea": los workers no llaman git.
