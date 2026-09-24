@@ -23,7 +23,7 @@ import { loadEnv, readAgent } from './lib/agents.mjs';
 import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
-  shouldMetaReview, pathsConflict, detectExhausted,
+  shouldMetaReview, pathsConflict, detectExhausted, detectUnusableModel, blacklistModel,
   normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
@@ -90,6 +90,35 @@ async function selfTest() {
   // (el 402 suele venir en el mismo string, pero no dependemos de eso).
   eq('detectExhausted "Insufficient account funds"', detectExhausted({ errorMessage: 'Upstream request failed: Insufficient account funds' }) === true);
   eq('detectExhausted "insufficient funds"', detectExhausted({ errorMessage: 'insufficient funds' }) === true);
+
+  // Modelo que el workspace NO puede usar (privacidad del proveedor) → blacklist
+  // automática: fuera del pool + models.exclude (persistente).
+  const unusableMsg =
+    'opencode-go API error (400): {"type":"server_error","message":"Upstream request failed: This Go model trains on request data. Allow paid endpoints that train on request data in your workspace\'s Privacy settings to use it."}';
+  eq('detectUnusableModel detecta "trains on request data"', detectUnusableModel({ errorMessage: unusableMsg }) === true);
+  eq('detectUnusableModel ignora un 429 normal', detectUnusableModel({ errorMessage: 'opencode-go API error (429): rate limit' }) === false);
+  eq('detectUnusableModel ignora el texto del modelo', detectUnusableModel({ stderr: '', text: unusableMsg }) === false);
+  eq('blacklistModel saca el modelo de todos los pools', (() => {
+    const c = {
+      roles: { author: ['malo', 'bueno'], verifier: ['malo', 'otro'], scout: 'malo', security: 'bueno', escalationAuthor: 'malo' },
+      fallback: { models: ['fb'] },
+      models: { exclude: [] },
+    };
+    const r = blacklistModel(c, 'malo', { reason: unusableMsg });
+    return r.added === true
+      && JSON.stringify(c.roles.author) === JSON.stringify(['bueno'])
+      && JSON.stringify(c.roles.verifier) === JSON.stringify(['otro'])
+      && c.roles.scout === 'bueno'
+      && c.roles.escalationAuthor === 'bueno'
+      && c.roles.security === 'bueno'
+      && c.models.exclude.includes('malo')
+      && typeof c.models.blacklistNotes.malo === 'string';
+  })());
+  eq('blacklistModel no duplica en exclude', (() => {
+    const c = { roles: { author: ['malo'] }, models: { exclude: ['malo'] } };
+    const r = blacklistModel(c, 'malo', {});
+    return r.added === false && c.models.exclude.length === 1;
+  })());
   eq('detectExhausted detecta 429 en stderr', detectExhausted({ stderr: 'HTTP 429 Too Many Requests' }) === true);
   eq('detectExhausted detecta quota en errorMessage', detectExhausted({ errorMessage: 'Error: quota exceeded for this key' }) === true);
   eq('detectExhausted código de pagos no agota', detectExhausted({ stderr: 'ok', text: 'InsufficientFundsError: 402' }) === false);

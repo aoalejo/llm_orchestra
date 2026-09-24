@@ -164,6 +164,12 @@ OPENCODE_GO_KEYS=key1,key2,key3    # cuenta(s) B: 1 sola var, N keys
   mandar datos a la nube. Requiere recargar pi para que tomen efecto.
 - **`dispatch --detach`**: devuelve `runId` de inmediato (el loop sigue en background); seguilo con
   `orchestra status --run <id>` (o `--runs`).
+- **Modelo no usable → blacklist automática**: si un modelo devuelve el 400 de privacidad del
+  proveedor ("This Go model **trains on request data** … Privacy settings"), el loop lo saca de
+  **todos** los pools en el acto y lo agrega a `models.exclude` del `config.json` (con la razón en
+  `models.blacklistNotes`), que el ranking respeta y no vuelve a proponer. Se detecta con
+  `detectUnusableModel` (stderr/`errorMessage`, nunca el texto del modelo) y se reintenta el ciclo
+  con otro modelo. Distinto de `detectExhausted` (cuota/saldo de la cuenta: ahí se rota la key).
 - **arena.ai es scraping**: si cambia el markup, `models` falla explícitamente ("0 filas") en vez
   de rankear con datos vacíos. Los scores por `override`/`family` son estimaciones: se avisan por warn.
 - `models.generated.json` y `config.json.bak` están git-ignored en el proyecto consumidor.
