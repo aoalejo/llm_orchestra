@@ -27,7 +27,7 @@ import {
   normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
-import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor, buildPiArgs } from './lib/runner.mjs';
+import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor, buildPiArgs, promptArgFor } from './lib/runner.mjs';
 import { makeKeyState, pickKey, keysStatus, workerKeyEntries, workerKeyNames, parseKeyList, worstQuotaPct, orderPoolByQuota } from './lib/keys.mjs';
 import { checkKeys } from './lib/keys-check.mjs';
 import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTargets, cleanWorktrees } from './lib/worktrees.mjs';
@@ -118,6 +118,14 @@ async function selfTest() {
     const c = { roles: { author: ['malo'] }, models: { exclude: ['malo'] } };
     const r = blacklistModel(c, 'malo', {});
     return r.added === false && c.models.exclude.length === 1;
+  })());
+
+  // Línea de comandos de Windows: prompt inline o @archivo (evita el "too long").
+  eq('promptArgFor inline si entra', promptArgFor(['--x'], 'corto', null, { shell: true }) === 'corto');
+  eq('promptArgFor inline con 20k sin shell', promptArgFor(['--x'], 'a'.repeat(20000), null, { shell: false }) === 'a'.repeat(20000));
+  eq('promptArgFor @archivo si no entra (shell)', (() => {
+    const f = promptArgFor(['--x'], 'a'.repeat(20000), null, { shell: true });
+    return f.startsWith('@') && fs.existsSync(f.slice(1));
   })());
   eq('detectExhausted detecta 429 en stderr', detectExhausted({ stderr: 'HTTP 429 Too Many Requests' }) === true);
   eq('detectExhausted detecta quota en errorMessage', detectExhausted({ errorMessage: 'Error: quota exceeded for this key' }) === true);
