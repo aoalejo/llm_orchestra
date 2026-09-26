@@ -97,6 +97,11 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
        scout|dispatch|approve|reject|status  --order <json> --orders <file> --decisions <json>`);
     return;
   }
+  // Antes de CUALQUIER trabajo: si hay un token que no reconozco, corto. El camino por defecto se
+  // pone a trabajar el backlog con modelos reales, así que un typo no puede pasar de largo.
+  if (args.unknown?.length) {
+    die(`no reconozco ${args.unknown.map((a) => `"${a}"`).join(', ')} — corré --help (no arranco nada, para no trabajar el backlog por un typo)`);
+  }
   if (args.selfTest) return await selfTest();
   if (args.init) return initProject(args.force);
 
