@@ -28,14 +28,13 @@
   },
 
   "loop": {
-    "$comment": "autoEscalate: usar el par de modelos caros en el ultimo ciclo. Default false (ADR 0005).",
+    "$comment": "autoEscalate: usar el par de modelos caros en el ultimo ciclo. Default false (ADR 0005). Opcional: loop.verifierTimeoutMs / loop.authorTimeoutMs para dar ventana propia a un rol (sin la clave usa piTimeoutMs).",
     "maxCycles": 4,
     "maxParallelTasks": 4,
     "doubleVerifyHighRisk": true,
     "highRiskLevels": ["high", "critical"],
     "autoEscalate": false,
-    "piTimeoutMs": 900000,
-    "verifierTimeoutMs": 600000
+    "piTimeoutMs": 900000
   },
 
   "worktrees": {
