@@ -5,7 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchGlob, denyReadHit, denyCommandHit, NO_SELF_COMMANDS } from "../lib/guards.mjs";
+import { matchGlob, denyReadHit, denyCommandHit, NO_SELF_COMMANDS, NO_SELF_TOOLS, allowReadOnlyApi } from "../lib/guards.mjs";
 
 /**
  * Extensión de pi que expone el Lean Orchestrator.
@@ -135,14 +135,19 @@ export default function orchestraExtension(pi: ExtensionAPI) {
     let guards: any = {};
     try { guards = JSON.parse(process.env.ORCHESTRA_GUARDS || "{}"); } catch { return; }
     const input: any = event?.input || {};
+    // C+D del 0034: la guarda se aplica también a las TOOLS (que no pasan por `bash`), y un `curl`
+    // de LECTURA sobre `api/sessions` pasa (diagnóstico), pero ningún endpoint de escritura.
+    const noSelf = guards.noSelfOrchestration === true || process.env.ORCHESTRA_NO_SELF === "1";
+    if (noSelf && NO_SELF_TOOLS.includes(String(event?.toolName || ""))) {
+      return { block: true, reason: `[orchestra] tool bloqueada por guards (rol ${role}): ${event.toolName}` };
+    }
     if (event?.toolName === "bash") {
       const cmd = String(input.command || "");
       // Además de lo que traiga el proyecto: un subagente —o un `pi` despertado por un wake, que pi-web
       // marca con ORCHESTRA_ROLE=wake— no puede disparar MÁS subagentes ni agendarse wakes. La política
       // vive en lib/guards.mjs, una sola vez.
-      const noSelf = guards.noSelfOrchestration === true || process.env.ORCHESTRA_NO_SELF === "1";
       const deny = [...(guards.denyCommands || []), ...(noSelf ? NO_SELF_COMMANDS : [])];
-      if (deny.length && denyCommandHit(cmd, deny)) {
+      if (deny.length && denyCommandHit(cmd, deny) && !allowReadOnlyApi(cmd)) {
         return { block: true, reason: `[orchestra] comando bloqueado por guards (rol ${role})` };
       }
       for (const g of guards.denyRead || []) {
