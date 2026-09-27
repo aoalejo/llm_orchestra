@@ -113,9 +113,15 @@ try {
 
   // 4. protegida con --yes → integra de verdad (state fresco para que corra el author)
   fs.rmSync(path.join(O, 'runs', 't3'), { recursive: true, force: true });
+  const headBefore = git(['rev-parse', 'HEAD'], tmp).out.trim();
   const protYes = orchestra(['--task', 't3', '--stub', '--commit', '--yes'], tmp, ENV);
   const afterYes = commitCount(tmp);
-  check('protegida con --yes integra (commit + merge)', protYes.code === 0 && afterYes - base === 2, `${afterYes - base} commits (esperados 2)\n${protYes.out.slice(-300)}`);
+  // 3 commits, no 2: el de la tarea + el `merge --no-ff` + el del scribe, que ahora corre por su
+  // cuenta (si no, el merge pisaba lo que el scribe escribió en ROOT — lib/commands.mjs:81).
+  check('protegida con --yes integra (commit + merge + scribe)', (() => {
+    const log = git(['log', '--oneline', `${headBefore}..HEAD`], tmp).out;
+    return protYes.code === 0 && afterYes - base === 3 && /docs\(scribe\)/.test(log);
+  })(), `${afterYes - base} commits (esperados 3)\n${git(['log', '--oneline', '--format=%s', `${headBefore}..HEAD`], tmp).out}${protYes.out.slice(-200)}`);
   check('protegida con --yes marca done', readJson(path.join(O, 'tasks.json')).tasks.find((t) => t.id === 't3').status === 'done');
   // Ojo: t1 conserva su worktree a propósito (venía de un --dry-run); sólo t3 debe limpiarse.
   check('t3: worktree y rama limpios tras integrar',
@@ -167,6 +173,26 @@ try {
   check('status muestra chat1 en needs-approval', (() => {
     try { const j = JSON.parse(status.out); const t = (j.tasks || []).find((x) => x.id === 'chat1'); return !!t && t.state === 'needs-approval'; } catch { return false; }
   })(), status.out.slice(0, 400));
+
+  // `status --runs` marca `dead` un batch cuyo proceso ya murió (antes quedaba en `running` para
+  // siempre: el path de un run puntual chequeaba el pid, el listado no — medido 2026-09-27).
+  {
+    const runs = path.join(O, 'runs');
+    fs.mkdirSync(runs, { recursive: true });
+    const marker = (runId, pid) => fs.writeFileSync(path.join(runs, runId + '.json'),
+      JSON.stringify({ runId, pid, startedAt: new Date().toISOString(), status: 'running', orders: [runId] }));
+    marker('batch-vivo', process.pid);
+    marker('batch-muerto', 999999);
+    const st = orchestra(['status', '--runs', '--json'], tmp, ENV);
+    check('status --runs: el batch con pid vivo sigue running y el muerto pasa a dead', (() => {
+      try {
+        const by = Object.fromEntries(JSON.parse(st.out).runs.map((r) => [r.runId, r.status]));
+        return by['batch-vivo'] === 'running' && by['batch-muerto'] === 'dead';
+      } catch { return false; }
+    })(), st.out.slice(0, 300));
+    fs.rmSync(path.join(runs, 'batch-vivo.json'), { force: true });
+    fs.rmSync(path.join(runs, 'batch-muerto.json'), { force: true });
+  }
 
   const appr = orchestra(['approve', '--task', 'chat1', '--commit', '--stub', '--json'], tmp, ENV);
   check('approve integra (commit + merge)', (() => {

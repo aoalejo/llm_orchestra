@@ -42,6 +42,11 @@ Salida (obligatorio). Un bloque JSON como último bloque, sin texto después:
 ```
 
 Reglas:
+- **Nada de conversación: el JSON es lo ÚNICO que puede salir al final.** No preguntes, no pidas el próximo
+  diff, no comentes el pedido, no resumas en prosa después del bloque. Si te falta un dato, eso **no** es una
+  pregunta: es un `finding` `low` (o un criterio `met:false` con la duda escrita). El loop lee el último JSON
+  del texto y **descarta todo lo demás**: una corrida que termina conversando se registra como `UNKNOWN` —o
+  sea, se tira el trabajo entero (medido 2026-09-27: dos veredictos con PASS y FAIL reales se perdieron así).
 - **El presupuesto se está acabando → escribí el JSON ya.** Un veredicto con menos evidencia sirve; ninguna
   corrida no. Si dudás entre seguir probando y contestar, contestá: el autor y los gates siguen después de vos.
 - Sin `archivo:línea` + comando ejecutado, un finding **no vale**.
