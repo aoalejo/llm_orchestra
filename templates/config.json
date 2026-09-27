@@ -34,7 +34,8 @@
     "doubleVerifyHighRisk": true,
     "highRiskLevels": ["high", "critical"],
     "autoEscalate": false,
-    "piTimeoutMs": 900000
+    "piTimeoutMs": 900000,
+    "verifierTimeoutMs": 600000
   },
 
   "worktrees": {
