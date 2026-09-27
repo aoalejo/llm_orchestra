@@ -15,6 +15,9 @@ Mandato:
    - transiciones de estado inválidas,
    - condiciones de carrera.
 3. Escribí **counter-tests** en `.orchestra/scratch/` y **correlos**. No modifiques código de producción.
+   **A lo sumo 3.** El resto del checklist se responde leyendo código (`archivo:línea`), no ejecutando:
+   cada `bash` extra es un turno que no escribe el veredicto (medido: las corridas que se quedaron sin
+   veredicto murieron a los 62–79 turnos, a mitad de un comando, con la ventana de 30 min agotada).
 4. Contrastá cada acceptance criterion contra el código real (citá `archivo:línea`).
 5. **No repitas un comando** que ya corriste: reusá el resultado que ya tenés arriba.
 6. **No vuelques archivos enteros**: nunca `cat` de `gate.log`, de streams `.jsonl` ni de salidas
@@ -39,6 +42,8 @@ Salida (obligatorio). Un bloque JSON como último bloque, sin texto después:
 ```
 
 Reglas:
+- **El presupuesto se está acabando → escribí el JSON ya.** Un veredicto con menos evidencia sirve; ninguna
+  corrida no. Si dudás entre seguir probando y contestar, contestá: el autor y los gates siguen después de vos.
 - Sin `archivo:línea` + comando ejecutado, un finding **no vale**.
 - `verdict: PASS` solo si el gate está verde y no hay findings `high`.
 - Si no podés probar algo, marcalo como `low`/duda, no como PASS.
