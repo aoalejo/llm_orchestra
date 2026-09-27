@@ -5,7 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchGlob, denyReadHit, denyCommandHit } from "../lib/guards.mjs";
+import { matchGlob, denyReadHit, denyCommandHit, NO_SELF_COMMANDS } from "../lib/guards.mjs";
 
 /**
  * Extensión de pi que expone el Lean Orchestrator.
@@ -137,7 +137,12 @@ export default function orchestraExtension(pi: ExtensionAPI) {
     const input: any = event?.input || {};
     if (event?.toolName === "bash") {
       const cmd = String(input.command || "");
-      if (guards.denyCommands?.length && denyCommandHit(cmd, guards.denyCommands)) {
+      // Además de lo que traiga el proyecto: un subagente —o un `pi` despertado por un wake, que pi-web
+      // marca con ORCHESTRA_ROLE=wake— no puede disparar MÁS subagentes ni agendarse wakes. La política
+      // vive en lib/guards.mjs, una sola vez.
+      const noSelf = guards.noSelfOrchestration === true || process.env.ORCHESTRA_NO_SELF === "1";
+      const deny = [...(guards.denyCommands || []), ...(noSelf ? NO_SELF_COMMANDS : [])];
+      if (deny.length && denyCommandHit(cmd, deny)) {
         return { block: true, reason: `[orchestra] comando bloqueado por guards (rol ${role})` };
       }
       for (const g of guards.denyRead || []) {
