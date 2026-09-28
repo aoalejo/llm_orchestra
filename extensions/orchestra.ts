@@ -5,7 +5,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { matchGlob, denyReadHit, denyCommandHit, NO_SELF_COMMANDS, NO_SELF_TOOLS, allowReadOnlyApi } from "../lib/guards.mjs";
+import { matchGlob, denyReadHit, denyCommandHit, gitWriteHit, NO_SELF_COMMANDS, NO_SELF_TOOLS, allowReadOnlyApi } from "../lib/guards.mjs";
 
 /**
  * Extensión de pi que expone el Lean Orchestrator.
@@ -148,7 +148,14 @@ export default function orchestraExtension(pi: ExtensionAPI) {
       // vive en lib/guards.mjs, una sola vez.
       const deny = [...(guards.denyCommands || []), ...(noSelf ? NO_SELF_COMMANDS : [])];
       if (deny.length && denyCommandHit(cmd, deny) && !allowReadOnlyApi(cmd)) {
-        return { block: true, reason: `[orchestra] comando bloqueado por guards (rol ${role})` };
+        // El mensaje del bloqueo dice qué hacer en vez de eso (sobre todo para git: el commit lo hace la
+        // integración del loop, no el agente — ticket 0066 de pi-web).
+        const reason = gitWriteHit(cmd)
+          ? `[orchestra] no commitees (rol ${role}): dejá los cambios SIN COMMITEAR en el worktree — de commitear, de `
+            + `stager y de mergear se encarga la integración del loop (git add -A + commit + merge). Si querés `
+            + `inspeccionar el repo usá git status/diff/log/show/rev-parse, que sí están permitidos.`
+          : `[orchestra] comando bloqueado por guards (rol ${role})`;
+        return { block: true, reason };
       }
       for (const g of guards.denyRead || []) {
         const token = String(g).replace(/\*+/g, "").replace(/^\/+/, "");
