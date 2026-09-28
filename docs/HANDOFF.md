@@ -90,6 +90,14 @@
 36. **Dashboard** (`lib/dashboard.mjs`): `orchestra dashboard` (TUI ANSI, fases 1) +
     panel/widget dentro de pi (`orchestra_dashboard`, `/orchestra-dashboard`) que se refresca
     mientras corre un dispatch (fase 2).
+37. **El commit del scribe se lleva `.orchestra/tasks.json`** (v0.3.1): el comentario de
+    `commitScribeDocs` decía que la exclusión de la cola estaba bien porque "el loop la commitea
+    en sus propios chores", pero ningún otro `git commit` la tocaba: toda integración dejaba
+    `M .orchestra/tasks.json` mugriento en la rama base (queja del usuario 2026-09-28). Ahora la
+    cola viaja en el `docs(scribe)`; sólo `jobs.json` queda excluido (es el runtime vivo del
+    huésped, no del loop). Con 2 workers el batch sale de 5 ó 6 commits (los `markTask` pueden
+    caer antes del primer `commitScribeDocs`): el smoke lo admite y además asserta la invariante
+    real, "el worktree queda limpio". self-test 138/138, smoke 43/43.
 
 ## Qué falta (para ejecutar el primer trabajo real)
 
