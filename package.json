@@ -1,6 +1,6 @@
 {
   "name": "llm-orchestra",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Lean Orchestrator: Ralph loop multi-modelo con verificación adversa, worktrees y rotación de cuentas, para pi.",
   "type": "module",
   "bin": {

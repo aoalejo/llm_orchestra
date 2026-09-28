@@ -137,7 +137,11 @@ try {
   const doneIds = readJson(path.join(O, 'tasks.json')).tasks.filter((t) => t.status === 'done').map((t) => t.id);
   check('--all sale 0', all.code === 0, all.out.slice(-400));
   check('--all marca t1 y t2 done', doneIds.includes('t1') && doneIds.includes('t2'), doneIds.join(','));
-  check('--all commitea por tarea (commit + merge --no-ff)', afterAll - beforeAll === 4, `${afterAll - beforeAll} commits (esperados 4)`);
+  // 5 ó 6: con 2 workers, los dos markTask pueden caer antes del primer commitScribeDocs (la cola
+  // book y la git son distintas) → el segundo commit sale limpio. Lo que no puede pasar: que quede
+  // algo sin commitear (la queja del worktree mugriento).
+  check('--all commitea por tarea (commit + merge + scribe c/ tasks.json)', afterAll - beforeAll >= 5 && afterAll - beforeAll <= 6, `${afterAll - beforeAll} commits (esperados 5-6)`);
+  check('--all deja el worktree limpio', git(['status', '--porcelain'], tmp).out.trim() === '', git(['status', '--porcelain'], tmp).out);
   check('--all no deja worktrees ni ramas', worktreesLeft(tmp) === 0 && branches(tmp) === '', `wt=${worktreesLeft(tmp)} br=${branches(tmp)}`);
   check('ledger registra scout/author/verifier (T-01)', (() => {
     const roles = new Set(fs.readFileSync(path.join(O, 'ledger.jsonl'), 'utf8').trim().split('\n').map((l) => { try { return JSON.parse(l).role; } catch { return null; } }).filter(Boolean));
@@ -155,7 +159,9 @@ try {
     try { const j = JSON.parse(rep.out); return j.events > 0 && !!j.byRole.author && !!j.byTask.t1; } catch { return false; }
   })(), rep.out.slice(0, 200));
 
-  // 8. modo chat: scout / dispatch / status / approve
+  // 8. modo chat: scout / dispatch / status / approve — ojo: el dispatch sin --commit no commitea,
+  // pero approve sí, y ahora el commit del scribe se lleva también .orchestra/tasks.json (la marca
+  // done), así que cada integración son 3 commits, no 2.
   const scout = orchestra(['scout', '--query', 'recon de smoke', '--stub', '--json'], tmp, ENV);
   check('scout --json responde ok', (() => {
     try { const j = JSON.parse(scout.out); return j.status === 'ok' && typeof j.map === 'string'; } catch { return false; }
@@ -195,8 +201,8 @@ try {
   }
 
   const appr = orchestra(['approve', '--task', 'chat1', '--commit', '--stub', '--json'], tmp, ENV);
-  check('approve integra (commit + merge)', (() => {
-    try { const j = JSON.parse(appr.out); return j.approved === true && j.integration?.ok === true && commitCount(tmp) - beforeChat === 2; } catch { return false; }
+  check('approve integra (commit + merge + scribe)', (() => {
+    try { const j = JSON.parse(appr.out); return j.approved === true && j.integration?.ok === true && commitCount(tmp) - beforeChat === 3; } catch { return false; }
   })(), appr.out.slice(0, 400));
   check('approve marca chat1 done', readJson(path.join(O, 'tasks.json')).tasks.find((t) => t.id === 'chat1')?.status === 'done');
   check('el commit de approve incluye el cambio', /stub-change-/.test(treeFiles(tmp)));
@@ -208,7 +214,7 @@ try {
   const o2 = JSON.stringify({ id: 'b2', goal: 'frontend', acceptance: ['b'], scope: ['stub-b2-*'] });
   const batch = orchestra(['dispatch', '--order', o1, '--order', o2, '--workers', '2', '--stub', '--commit', '--json'], tmp, ENV);
   check('dispatch multi-orden integra ambas', (() => {
-    try { const j = JSON.parse(batch.out); return j.results.length === 2 && j.results.every((r) => r.approved) && commitCount(tmp) - beforeBatch === 4; } catch { return false; }
+    try { const j = JSON.parse(batch.out); return j.results.length === 2 && j.results.every((r) => r.approved) && commitCount(tmp) - beforeBatch >= 5 && commitCount(tmp) - beforeBatch <= 6 && git(['status', '--porcelain'], tmp).out.trim() === ''; } catch { return false; }
   })(), batch.out.slice(0, 500));
   const doneAfterBatch = readJson(path.join(O, 'tasks.json')).tasks.filter((t) => t.status === 'done').map((t) => t.id);
   check('dispatch multi-orden marca done', doneAfterBatch.includes('b1') && doneAfterBatch.includes('b2'), doneAfterBatch.join(','));
