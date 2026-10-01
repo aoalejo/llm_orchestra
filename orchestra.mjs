@@ -24,7 +24,7 @@ import {
   extractLastJson, isProtected, isProtectedChange, findingsSignature, gateCommands,
   workOrderText, pickAuthorVerifier, pickFallbackPair, recordUsage, budgetStatus,
   shouldMetaReview, pathsConflict, detectExhausted, detectUnusableModel, blacklistModel, normalizeVerdict,
-  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion,
+  normalizeWorkOrder, validateWorkOrder, compactFindings, slugify, changesScope, classifyExhaustion, keysMode,
 } from './lib/pure.mjs';
 import { stubModel } from './lib/stub.mjs';
 import { resolvePi, callModel, changedFiles, setPiTimeout, runProcess, streamPathFor, heartbeatPathFor, buildPiArgs, promptArgFor } from './lib/runner.mjs';
@@ -128,8 +128,10 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   const tasksDoc = readJson(tasksFile);
 
   log(`pi: ${pi.label} | provider: ${config.provider} | runner: ${runner}`);
-  if (!process.env[config.keys.orchestrator]) warn(`falta ${config.keys.orchestrator} en .orchestra/.env`);
-  if (!workerKeyEntries(config).length) warn(`falta alguna key de worker en ${workerKeyNames(config).join(', ') || '(config.keys.workers)'} (.orchestra/.env)`);
+  if (config.keys?.mode !== undefined && !['pool', 'pi-auth'].includes(config.keys.mode)) die(`keys.mode "${config.keys.mode}" no existe (valores: "pool" | "pi-auth")`);
+  if (keysMode(config) === 'pi-auth') log('keys.mode = pi-auth: las credenciales las maneja pi (auth.json / env); sin pool de keys ni rotación');
+  else if (!process.env[config.keys.orchestrator]) warn(`falta ${config.keys.orchestrator} en .orchestra/.env`);
+  if (keysMode(config) !== 'pi-auth' && !workerKeyEntries(config).length) warn(`falta alguna key de worker en ${workerKeyNames(config).join(', ') || '(config.keys.workers)'} (.orchestra/.env)`);
   if (args.decisionsRaw) {
     try { args.decisions = JSON.parse(args.decisionsRaw); } catch (e) { die(`--decisions no es JSON válido: ${e.message}`); }
   }
@@ -153,7 +155,8 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   }
 
   // Rankings de modelos: refresh best-effort si están viejos (default: cada 24 h).
-  if (runner === 'real' && config.models?.rankings?.enabled !== false && !args.plan) {
+  // D7 (P00095): con credenciales de pi (pi-auth) el refresco se saltea: reescribiría los roles con ids de opencode-go.
+  if (runner === 'real' && config.models?.rankings?.enabled !== false && keysMode(config) !== 'pi-auth' && !args.plan) {
     try {
       const genPath = path.join(O, 'models.generated.json');
       const gen = exists(genPath) ? readJson(genPath) : null;
