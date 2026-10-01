@@ -141,6 +141,41 @@ Las cuentas B van en **una sola** env var, con una o varias keys rotativas:
 OPENCODE_GO_KEYS=key1,key2,key3      # o ["key1","key2"] o una sola key
 ```
 
+## Proveedores directos (sin rotación)
+
+Para usar una API **por uso** (DeepSeek, MiMo/Xiaomi, etc.) en vez del pool rotativo de `opencode-go`,
+partí de [`templates/config.direct.json`](./templates/config.direct.json):
+
+```jsonc
+{
+  "provider": "deepseek",                       // provider por defecto (modelos sin prefijo)
+  "keys": { "mode": "pi-auth" },                // pi maneja las credenciales; sin pool ni rotación
+  "roles": {
+    "author":   ["deepseek/deepseek-flash"],    // "<provider>/<modelo>" por rol
+    "verifier": ["xiaomi-token-plan-sgp/mimo-v2.6-flash"]
+  },
+  "models": { "rankings": { "enabled": false } }
+}
+```
+
+- **Proveedor por rol**: cualquier modelo de `roles.*`, `fallback.models` y de escalado puede ir como
+  `"<provider>/<modelo>"` (se parte en la **primera** `/`; un id que ya trae barra se escribe con provider
+  explícito, `openrouter/qwen/qwen3-coder`). Sin prefijo usa `provider`, así que las configs actuales no cambian.
+  "Verificador ≠ autor" compara `provider/modelo`. La key del pool nunca se manda a un modelo de otro provider.
+- **`keys.mode`**: `"pool"` (default, el comportamiento de siempre) o `"pi-auth"`: no se pasa `--api-key`, pi usa su
+  `~/.pi/agent/auth.json` (o las variables de entorno del proveedor), Orchestra no lee env vars de keys y
+  `--keys-status` sólo lo informa. No hay rotación: nada se marca "agotado".
+- **Errores sin rotación** (sólo `pi-auth`): un `429` reintenta la misma invocación con espera
+  (`keys.retryBackoffMs`, default `[30000, 120000, 300000]`); si se agotan, o ante un `401`/`402`/fondos, la tarea
+  termina en `provider-unavailable`.
+- **Cola colgada** (ambos modos): si pi no emite ningún evento del modelo durante `loop.firstTokenTimeoutMs`
+  (default 5 min), se mata el proceso, se reintenta una vez y, si se repite, `provider-unavailable`.
+- **`provider-unavailable`** es un estado final (como `needs-decision`): `status`/`dispatch --json` traen
+  `decision: { reason: "provider-unavailable", role, model, provider, cause, class, attempts, message }` para que el
+  orquestador del chat escale a otro modelo/proveedor o espere. No cambia el exit code (igual que `needs-decision`).
+- **Sin fugas**: `usage` y el catálogo de modelos no hacen ninguna request si el provider no es `opencode-go` y no hay
+  `providerBaseUrl`; con `pi-auth` el refresco automático de rankings se saltea.
+
 ## Seguridad
 
 - Los subagentes ejecutan `pi` con acceso a bash: tratá los agentes como código ejecutable.

@@ -1,0 +1,112 @@
+{
+  "$comment": "Ejemplo: proveedores DIRECTOS (API por uso), sin pool de keys ni rotación. Copialo a .orchestra/config.json. Las credenciales las maneja pi (~/.pi/agent/auth.json o variables de entorno del proveedor): acá no hay ninguna. Los modelos de los roles se escriben '<provider>/<modelo>'; sin prefijo usan 'provider'. Los ids de ejemplo son genéricos: usá los que tengas en tu auth.json (`pi --list-models`).",
+  "version": 2,
+  "provider": "deepseek",
+
+  "keys": {
+    "$comment": "mode 'pi-auth': no se pasa --api-key, no hay rotación ni lectura de env vars de keys. 429 → reintento con espera (retryBackoffMs); 401/402/fondos → provider-unavailable inmediato.",
+    "mode": "pi-auth",
+    "retryBackoffMs": [30000, 120000, 300000]
+  },
+
+  "roles": {
+    "orchestrator": { "model": "deepseek/deepseek-flash", "thinking": "high" },
+    "judge": { "model": "deepseek/deepseek-flash", "thinking": "high" },
+    "author": ["deepseek/deepseek-flash"],
+    "verifier": ["xiaomi-token-plan-sgp/mimo-v2.6-flash"],
+    "security": "xiaomi-token-plan-sgp/mimo-v2.6-flash",
+    "scout": "xiaomi-token-plan-sgp/mimo-v2.6-flash",
+    "scribe": "xiaomi-token-plan-sgp/mimo-v2.6-flash",
+    "merge": "deepseek/deepseek-flash"
+  },
+
+  "fallback": {
+    "models": ["xiaomi-token-plan-sgp/mimo-v2.6-flash"],
+    "askOrchestratorOnExhaustion": true
+  },
+
+  "loop": {
+    "$comment": "firstTokenTimeoutMs: si pi no emite NINGÚN evento del modelo en este tiempo (el proveedor aceptó el pedido y lo dejó en cola), se mata, se reintenta una vez y, si vuelve a pasar, la tarea termina en provider-unavailable.",
+    "maxCycles": 4,
+    "maxParallelTasks": 2,
+    "doubleVerifyHighRisk": true,
+    "highRiskLevels": ["high", "critical"],
+    "autoEscalate": false,
+    "piTimeoutMs": 900000,
+    "firstTokenTimeoutMs": 300000
+  },
+
+  "worktrees": {
+    "enabled": true,
+    "dir": ".orchestra/worktrees",
+    "linkNodeModules": true,
+    "link": ["node_modules", "packages/*/node_modules", "apps/*/node_modules"]
+  },
+
+  "integration": {
+    "strategy": "merge-branch",
+    "branchPrefix": "orchestra/",
+    "mergeAgent": true,
+    "humanOnConflict": false
+  },
+
+  "scout": {
+    "enabled": true,
+    "provider": "auto",
+    "cache": { "maxAgeMinutes": 720 },
+    "socraticode": {
+      "command": "npx",
+      "args": ["-y", "--prefer-online", "socraticode@latest"],
+      "env": {},
+      "projectPath": null,
+      "limit": 8,
+      "minScore": null,
+      "autoIndex": false,
+      "synthesize": true,
+      "timeoutMs": 120000
+    }
+  },
+  "metaReview": { "enabled": true, "sampleRate": 0.34, "alwaysForHighRisk": true },
+  "progress": { "repeatSignatureLimit": 2 },
+
+  "models": {
+    "$comment": "Rankings DESACTIVADOS: el refresco automático consulta el catálogo de opencode-go y reescribe los roles con sus ids; no aplica a proveedores directos.",
+    "rankings": { "enabled": false }
+  },
+
+  "budget": { "maxUsdPerTask": 2.0, "maxInputTokensPerTask": 4000000, "maxOutputTokensPerTask": 1000000 },
+
+  "gates": {
+    "$comment": "Reemplazá los targets por los de tu stack; cada tarea los referencia en 'targets'.",
+    "timeoutMs": 1200000,
+    "baseline": true,
+    "allowRedBaseline": false,
+    "example": ["npm run lint", "npm run build", "npm test -- --run"]
+  },
+
+  "protectedPaths": [
+    "migrations/",
+    "src/auth/",
+    "src/payments/"
+  ],
+
+  "guards": {
+    "enabled": true,
+    "logCommands": true,
+    "blockConfidential": false,
+    "lintAcceptance": true,
+    "denyRead": null,
+    "denyCommands": null
+  },
+
+  "verify": { "localOnly": false },
+
+  "commit": {
+    "onlyOrchestrator": true,
+    "convention": "conventional",
+    "requireFlag": "--commit",
+    "requireHumanApprovalForProtected": true
+  },
+
+  "piCli": ""
+}

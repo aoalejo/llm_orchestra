@@ -86,6 +86,32 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
   con varias cuentas rotando: el loop detecta la cuenta muerta recién al usarla
   (quema un ciclo), este chequeo lo adelanta.
 
+### 6.1 Proveedores directos (`keys.mode: "pi-auth"`, P00095)
+
+Resumen para usuarios en el [README](../README.md#proveedores-directos-sin-rotación); el diseño:
+
+- **Proveedor por rol** (`pure.mjs`): `splitModelRef(ref, config.provider)` parte `"<provider>/<modelo>"` en la primera
+  `/` (prefijo `[a-z0-9][a-z0-9_-]*`); `modelCallOpts(config, ref)` arma lo que necesita `callModel`
+  (`provider`, `model`, `keysMode`, `retryBackoffMs`, `firstTokenTimeoutMs`, `noApiKey`). Todos los callers de rol
+  (`author`, `verify`, `integrate`, `loop`, `commands`) lo usan en vez de `config.provider`. `sameModel` compara
+  `provider/modelo` (verificador ≠ autor, fallback, reintento de verifier).
+- **Credenciales** (`keys.mjs`): en `pi-auth`, `pickKey` devuelve el marcador `PI_AUTH_KEY` (sin `value`, no nulo para
+  que el loop no lo lea como "workers agotados"), `workerKeyEntries` devuelve `[]` y `buildPiArgs` omite `--api-key`.
+  `noApiKey` evita mandar la key del pool a un modelo de otro provider (también en `pool`).
+- **Recuperación** (`runner.mjs`, `runPiResilient`, lo que invoca `callModel`): 429 en `pi-auth` → espera
+  `retryBackoffMs[i]` y repite la misma invocación; 401/402/fondos → `providerUnavailable` inmediato; nunca devuelve
+  `exhausted`. Cola colgada (ambos modos): `runProcess` recibe `stallMs`/`stallDone`; si a los
+  `firstTokenTimeoutMs` no llegó ningún evento del modelo (`isModelEvent`: `message_update`, `tool_execution_*`,
+  `message_end`/`turn_end` del assistant — **no** `message_start`) mata el árbol (código 125, `stalled`), se
+  reintenta una vez y si se repite, `providerUnavailable`.
+- **Estado final** (`loop.mjs`, `finishProviderUnavailable`): el rol que falla (scout/author/verifier/security) deja la
+  tarea en `provider-unavailable` con `decision` (`reason`, `role`, `model`, `provider`, `cause` = rate-limit/funds/auth/stalled,
+  `class`, `attempts`, `message`) y el ledger marca `providerUnavailable`. Scribe y merge-agent sólo avisan.
+- **Sin fugas** (`models.mjs`/`usage.mjs`): `providerQueryAllowed` — sólo `opencode-go` o `providerBaseUrl` explícito
+  pueden recibir `GET /usage` y `GET /models` con una key. El refresco de rankings se saltea en `pi-auth`.
+- **Tests**: self-test (provider por rol, `pi-auth`, D7, `runPiResilient` con `run`/`sleep` inyectados) y la sección 10 del
+  smoke, que corre el runner **real** contra `tests/helpers/fake-pi.mjs` (429 una vez / sostenido, 402, cola colgada).
+
 ## 7. Artefactos
 
 ```

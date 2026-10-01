@@ -257,6 +257,81 @@ try {
   const dash = orchestra(['dashboard', '--once', '--json'], tmp, ENV);
   check('dashboard --once --json responde', (() => { try { const j = JSON.parse(dash.out); return Array.isArray(j.tasks) && typeof j.summary === 'object'; } catch { return false; } })(), dash.out.slice(0, 300));
 
+  // 10. Proveedores directos (P00095): keys.mode "pi-auth", modelo "<provider>/<modelo>" por rol, 429 con
+  //     backoff, 402 inmediato y cola colgada. Corre el runner REAL contra un pi falso (tests/helpers/fake-pi.mjs).
+  {
+    const fakePi = path.join(HERE, 'helpers', 'fake-pi.mjs');
+    const c10 = readJson(cfgPath);
+    c10.provider = 'deepseek';
+    c10.keys = { mode: 'pi-auth', retryBackoffMs: [50, 50] };
+    c10.roles = { ...c10.roles, author: ['deepseek/deepseek-flash'], verifier: ['xiaomi-token-plan-sgp/mimo-v2.6-flash'], security: 'deepseek/deepseek-flash', scout: 'deepseek/deepseek-flash', scribe: 'deepseek/deepseek-flash', merge: 'deepseek/deepseek-flash' };
+    c10.loop = { ...c10.loop, maxCycles: 1, maxParallelTasks: 1, firstTokenTimeoutMs: 1500 };
+    c10.scout = { enabled: true, provider: 'llm', cache: { maxAgeMinutes: 0 } };
+    c10.gates = { smoke: ['node -e "process.exit(0)"'] };
+    c10.models = { ...(c10.models || {}), rankings: { enabled: false } };
+    fs.writeFileSync(cfgPath, JSON.stringify(c10, null, 2));
+    fs.writeFileSync(path.join(O, 'ledger.jsonl'), '');
+    const counter = path.join(tmp, 'fakepi-count');
+    const count = (id, role) => { try { return Number(fs.readFileSync(`${counter}-${id}.${role}`, 'utf8')); } catch { return 0; } };
+    const run10 = (id, fake) => {
+      const o = JSON.stringify({ id, goal: 'proveedor directo', acceptance: ['existe el cambio'], scope: ['fake-change-*'] });
+      const env = { ...ENV, ORCHESTRA_PI_CLI: fakePi, FAKE_PI_COUNTER: `${counter}-${id}`, ...fake };
+      const r = orchestra(['dispatch', '--order', o, '--json'], tmp, env);
+      let j = null;
+      try { j = JSON.parse(r.out).results[0]; } catch { /* noop */ }
+      return { r, j };
+    };
+    const ledger10 = () => fs.readFileSync(path.join(O, 'ledger.jsonl'), 'utf8').split(/\r?\n/).filter(Boolean).map((l) => JSON.parse(l));
+    const piArg = (args, flag) => args[args.indexOf(flag) + 1];
+    const cycleLog = (id, file) => readJson(path.join(O, 'runs', id, 'cycle-1', file));
+
+    // un 429 (sólo la primera vez) → reintenta la misma invocación y el run termina bien
+    const a = run10('pa-429-una', { FAKE_PI_ERROR: '429', FAKE_PI_FAIL_FIRST: '1' });
+    check('pi-auth: un 429 reintenta y el run pasa (needs-approval)', a.j?.status === 'needs-approval' && count('pa-429-una', 'author') === 2, a.r.all.slice(-500));
+    check('provider por rol: author con deepseek, verifier con xiaomi; sin --api-key', (() => {
+      const au = cycleLog('pa-429-una', 'author.json').args;
+      const ve = cycleLog('pa-429-una', 'verdict-a.json').args;
+      return piArg(au, '--provider') === 'deepseek' && piArg(au, '--model') === 'deepseek-flash'
+        && piArg(ve, '--provider') === 'xiaomi-token-plan-sgp' && piArg(ve, '--model') === 'mimo-v2.6-flash'
+        && !au.includes('--api-key') && !ve.includes('--api-key');
+    })());
+
+    // 429 siempre → 1 + 2 reintentos = 3 invocaciones y provider-unavailable
+    const b = run10('pa-429-siempre', { FAKE_PI_ERROR: '429' });
+    check('pi-auth: 429 repetido → provider-unavailable tras agotar los reintentos',
+      b.j?.status === 'provider-unavailable' && b.j?.decision?.reason === 'provider-unavailable' && b.j?.decision?.role === 'author'
+      && b.j?.decision?.cause === 'rate-limit' && count('pa-429-siempre', 'author') === 3, JSON.stringify(b.j?.decision) + b.r.all.slice(-300));
+
+    // 402 → inmediato, sin reintento
+    const c = run10('pa-402', { FAKE_PI_ERROR: '402' });
+    check('pi-auth: 402 → provider-unavailable sin reintento (clase funds)',
+      c.j?.status === 'provider-unavailable' && c.j?.decision?.cause === 'funds' && c.j?.decision?.class === 'funds' && count('pa-402', 'author') === 1,
+      JSON.stringify(c.j?.decision) + c.r.all.slice(-300));
+
+    // cola colgada: 0 eventos del modelo → se mata a los firstTokenTimeoutMs (1,5 s), 1 reintento, provider-unavailable
+    const t0 = Date.now();
+    const d = run10('pa-stall', { FAKE_PI_ERROR: 'stall' });
+    check('cola colgada: se mata, se reintenta una vez y termina provider-unavailable',
+      d.j?.status === 'provider-unavailable' && d.j?.decision?.cause === 'stalled' && count('pa-stall', 'author') === 2 && Date.now() - t0 < 60000,
+      JSON.stringify(d.j?.decision) + d.r.all.slice(-300));
+    check('cola colgada: el log del rol deja stalled:true (código 125) y el proceso se cortó antes del tope del fake', (() => {
+      const l = cycleLog('pa-stall', 'author.json');
+      return l.stalled === true && l.code === 125 && l.durationMs < 20000;
+    })());
+
+    // status: el estado final se ve como needs-decision (state + decision con el rol que falló)
+    const st10 = orchestra(['status', '--json'], tmp, ENV);
+    check('status muestra provider-unavailable con su decision', (() => {
+      try { const t = JSON.parse(st10.out).tasks.find((x) => x.id === 'pa-402'); return t.state === 'provider-unavailable' && t.decision?.role === 'author'; } catch { return false; }
+    })(), st10.out.slice(0, 300));
+
+    // ninguna llamada marcó una key agotada: el ledger no tiene exhausted:true y las fallas quedan como providerUnavailable
+    const led = ledger10();
+    check('pi-auth: ninguna llamada marca key agotada (ledger)',
+      led.length > 0 && led.every((e) => !e.exhausted) && led.some((e) => e.providerUnavailable === 'rate-limit') && led.some((e) => e.providerUnavailable === 'funds'),
+      JSON.stringify(led.slice(-3)));
+  }
+
   // 7. self-test del driver
   const st = orchestra(['--self-test'], tmp, ENV);
   check('--self-test pasa', st.code === 0, st.out.slice(-200));
