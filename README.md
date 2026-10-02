@@ -95,6 +95,49 @@ orchestra --clean [--force]    # limpia worktrees/ramas huérfanas de forma segu
 
 O desde pi: `/orchestra --keys-status`, `/orchestra --plan`.
 
+## verify — QA sobre un worktree externo (P00096)
+
+`orchestra verify` hace QA **independiente** sobre un worktree que NO creó Orchestra (lo escribió
+otro autor, p. ej. otro agente). No crea worktrees, no commitea, no mergea y no toca `tasks.json`:
+
+```bash
+orchestra verify --worktree /ruta/al/worktree --order '{"id":"qa","goal":"...","targets":["smoke"],"scope":["src/..."],"acceptance":["..."]}'
+orchestra verify --worktree <ruta> --order @orden.json --base main   # --base default: main
+```
+
+Qué hace, en orden:
+
+1. Corre los gates de `order.targets` (`config.gates`) **en ese worktree**. Gate rojo = FAIL.
+2. Escribe el diff `base…HEAD` + cambios sin commitear y llama a los verificadores configurados
+   (mismo prompt `agents/verifier.md`, mismas guardas de sólo lectura; contra-tests en
+   `.orchestra/scratch`).
+3. **Guarda de permisos (D2)**: compara `git status --porcelain` antes/después del verifier y
+   revierte todo lo que él tocó salvo los archivos `zz-qa-*` (permitidos) — reportándolo como
+   violación. Lo que el autor ya tenía modificado NO se toca (se restaura desde una copia baseline).
+4. Reporte en `.orchestra/runs/verify-<id>-<ts>/report.md` + `report.json`.
+
+Exit codes: `0` PASS · `1` FAIL (o gates rojos) · `2` violación de permisos del verifier ·
+`3` provider-unavailable (proveedor sin responder o sin veredicto utilizable).
+
+### Limitación conocida
+
+El worktree externo **no debe ser editado mientras `verify` se está ejecutando**. Si el autor
+hace cambios (git add/commit) mientras el verifier corre, el resultado de la guarda D2 es
+indeterminado. Solución: esperar a que `verify` termine antes de editar. Esta es una
+restricción de la captura del estado git (snapshot), no un bug.
+
+Otras: los archivos del autor de **más de 5 MB** no se copian al baseline; si el verifier los
+modifica, la violación se reporta (exit 2) pero el contenido no se restaura. El índice (staging)
+sí se repone siempre, entrada por entrada (`git update-index --index-info`): un `git add`,
+`git mv` o `git commit` del verifier no deja nada staged.
+
+### `config.bookkeeping: 'external'`
+
+Con `"bookkeeping": "external"` en `.orchestra/config.json` el ciclo NO deja bookkeeping del
+orquestador en el repo: no corre el scribe (no escribe `STATE.md`), no persiste órdenes en
+`.orchestra/tasks.json` (viven sólo en `.orchestra/runs/`) y el commit de integración excluye
+archivos de `.orchestra/`. Default: `"orchestra"` = comportamiento actual, sin cambios.
+
 ## Estructura
 
 ```

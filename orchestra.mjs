@@ -34,6 +34,7 @@ import { prepareWorktree, removeWorktree, installSignalHandlers, resolveLinkTarg
 import { runTaskLoop } from './lib/loop.mjs';
 import { integrateTask } from './lib/integrate.mjs';
 import { makeDeps, executeTask, scoutCommand, dispatchCommand, approveCommand, rejectCommand, statusCommand, usageCommand } from './lib/commands.mjs';
+import { verifyCommand } from './lib/verify.mjs';
 import { runWithConcurrency } from './lib/util.mjs';
 import { runModelsCommand, applyAndSaveRanking } from './lib/modelscmd.mjs';
 import { reportCommand, summarizeLedger } from './lib/report.mjs';
@@ -88,13 +89,15 @@ async function main() {
   orchestra approve --task <id> [--commit] [--yes] [--message "..."]
   orchestra reject --task <id> [--reason "..."]
   orchestra status [--json]
+  orchestra verify --worktree <ruta> --order <json|@archivo> [--base <ref>]
+                                    # QA independiente sobre un worktree externo (exit 0/1/2/3)
   orchestra --plan                  # imprime STATE.md + backlog (sin LLM)
   orchestra --task <id> [--commit] [--yes] [--dry-run]
   orchestra --all [--workers 4] [--no-worktrees]
 
 Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status --keys-check
        models [--apply] [--json] --stub  report [--json]  --clean [--force]
-       scout|dispatch|approve|reject|status  --order <json> --orders <file> --decisions <json>`);
+       scout|dispatch|approve|reject|status|verify  --order <json> --orders <file> --decisions <json> --worktree <ruta> --base <ref>`);
     return;
   }
   // Antes de CUALQUIER trabajo: si hay un token que no reconozco, corto. El camino por defecto se
@@ -137,8 +140,9 @@ Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-work
   }
 
   // Subcomandos de modo chat (el orquestador sos vos).
-  const needDeps = args.scout || args.dispatch || args.approve || args.reject;
+  const needDeps = args.scout || args.dispatch || args.approve || args.reject || args.verify;
   const cmdDeps = needDeps ? makeDeps(config, pi, runner) : null;
+  if (args.verify) { const vr = await verifyCommand(args, config, cmdDeps); process.exitCode = vr.exitCode ?? 0; return; }
   if (args.scout) { await scoutCommand(args, config, cmdDeps); return; }
   if (args.dispatch) { await dispatchCommand(args, config, cmdDeps); return; }
   if (args.approve) { await approveCommand(args, config, cmdDeps); return; }

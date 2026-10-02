@@ -44,7 +44,49 @@ if (failsHere && err === 'stall') {
     fs.writeFileSync(path.join(process.cwd(), `fake-change-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}.txt`), 'cambio del pi falso\n');
     text = '## RESUMEN\nfake author';
   } else if (role === 'verifier' || role === 'security-reviewer') {
-    text = '{"verdict":"PASS","findings":[],"acceptance":[],"counterTests":[],"commandsRun":[]}';
+    // P00096: FAKE_PI_VERDICT=FAIL contesta FAIL con findings; FAKE_PI_MUTATE='a.ts,b.ts' crea/
+    // modifica esos archivos en el cwd (el worktree bajo QA) para ejercitar la guarda de permisos D2.
+    // FAKE_PI_COMMIT=1 hace git add + git commit para probar la detección de commits del verifier.
+    const { execSync } = await import('node:child_process');
+
+    for (const f of String(process.env.FAKE_PI_MUTATE || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+      fs.appendFileSync(path.join(process.cwd(), f), 'qa del verifier falso\n');
+    }
+
+    // FAKE_PI_GITMV='a.js:b.js' hace `git mv a.js b.js` (rename staged: la ruta vieja no aparece sola en porcelain).
+    for (const pair of String(process.env.FAKE_PI_GITMV || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+      const [from, to] = pair.split(':');
+      try { execSync(`git mv "${from}" "${to}"`, { cwd: process.cwd(), stdio: 'pipe' }); } catch { /* noop */ }
+    }
+
+    // FAKE_PI_INDEXPOISON='a.md': escribe contenido malicioso, `git add`, y restaura los bytes originales en el
+    // worktree (el índice queda envenenado sin que cambie el contenido del archivo).
+    for (const f of String(process.env.FAKE_PI_INDEXPOISON || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+      const p = path.join(process.cwd(), f);
+      const orig = fs.readFileSync(p);
+      fs.writeFileSync(p, 'contenido malicioso del verifier\n');
+      try { execSync(`git add -- "${f}"`, { cwd: process.cwd(), stdio: 'pipe' }); } catch { /* noop */ }
+      fs.writeFileSync(p, orig);
+    }
+    // FAKE_PI_CHECKOUT='main': cambia de rama (y con FAKE_PI_COMMIT commitea en ESA rama).
+    if (process.env.FAKE_PI_CHECKOUT) {
+      try { execSync(`git checkout -q "${process.env.FAKE_PI_CHECKOUT}"`, { cwd: process.cwd(), stdio: 'pipe' }); } catch { /* noop */ }
+    }
+    // FAKE_PI_ADDALL=1: `git add -A` sin tocar bytes (deja staged el trabajo del autor).
+    if (process.env.FAKE_PI_ADDALL) {
+      try { execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' }); } catch { /* noop */ }
+    }
+
+    if (process.env.FAKE_PI_COMMIT) {
+      try {
+        execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' });
+        execSync('git commit -m "commit del verifier falso"', { cwd: process.cwd(), stdio: 'pipe' });
+      } catch { /* noop */ }
+    }
+
+    text = process.env.FAKE_PI_VERDICT === 'FAIL'
+      ? '{"verdict":"FAIL","findings":[{"severity":"high","file":"clean.js","line":1,"problem":"hallazgo del verifier falso"}],"acceptance":[],"counterTests":[],"commandsRun":[]}'
+      : '{"verdict":"PASS","findings":[],"acceptance":[],"counterTests":[],"commandsRun":[]}';
   } else if (role === 'scout') {
     text = '- src/fake.js:1 — mapa de contexto (pi falso)';
   }
