@@ -49,6 +49,7 @@ const worktreesLeft = (cwd) => {
 
 /* ── setup ─────────────────────────────────────────────────────────────── */
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-smoke-'));
+let ext = null;   // repo externo (P00096): QA sobre un worktree que NO creó Orchestra
 const ENV = { ...process.env, ORCHESTRA_STUB_TOUCH: '1', ORCHESTRA_RUNNER: '', ORCHESTRA_PI_CLI: '', ORCHESTRA_AGENTS_DIR: '', ORCHESTRA_STUB_VERIFIER_ERROR: '' };
 delete ENV.OPENCODE_GO_KEY_ORCHESTRATOR;
 delete ENV.OPENCODE_GO_KEY_WORKER_1;
@@ -332,6 +333,252 @@ try {
       JSON.stringify(led.slice(-3)));
   }
 
+  const fakePi = path.join(HERE, 'helpers', 'fake-pi.mjs');
+
+  // 11. verify (P00096): QA independiente sobre un worktree EXTERNO, con gates + verifier simulado
+  //     y la guarda de permisos D2 (sólo `zz-qa-*` puede tocar el worktree).
+  {
+    // Repo externo "escrito por otro autor": rama main con la base, rama `autor` con un commit
+    // (base...HEAD) y un cambio sin commitear (README.md) que la guarda NO debe tocar.
+    ext = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-verify-'));
+    git(['init', '-q'], ext);
+    git(['config', 'user.email', 'verify@smoke.local'], ext);
+    git(['config', 'user.name', 'verify-smoke'], ext);
+    git(['config', 'commit.gpgsign', 'false'], ext);
+    fs.writeFileSync(path.join(ext, 'product.js'), 'module.exports = 1;\n');
+    fs.writeFileSync(path.join(ext, 'clean.js'), 'module.exports = "clean";\n');
+    fs.writeFileSync(path.join(ext, 'README.md'), '# externo\n');
+    git(['add', '-A'], ext); git(['commit', '-qm', 'base'], ext);
+    git(['branch', '-M', 'main'], ext);
+    git(['checkout', '-qb', 'autor'], ext);
+    fs.writeFileSync(path.join(ext, 'product.js'), 'module.exports = 2;\n');
+    git(['add', '-A'], ext); git(['commit', '-qm', 'feat del autor'], ext);
+    fs.writeFileSync(path.join(ext, 'README.md'), '# externo (editado por el autor)\n');
+
+    const order = JSON.stringify({ id: 'qa', goal: 'QA del worktree externo', targets: ['smoke'], scope: ['product.js'], acceptance: ['product.js exporta 2'] });
+    const lastRun = (id) => {
+      const dirs = fs.readdirSync(path.join(O, 'runs')).filter((x) => x.startsWith(`verify-${id}-`)).sort();
+      return path.join(O, 'runs', dirs[dirs.length - 1]);
+    };
+    const runVerify = (env) => orchestra(['verify', '--worktree', ext, '--order', order, '--json'], tmp,
+      { ...ENV, ORCHESTRA_PI_CLI: fakePi, ...env });
+
+    // a) veredicto PASS → exit 0 + report.md/report.json
+    const v1 = runVerify({});
+    const rd1 = lastRun('qa');
+    const rep1 = readJson(path.join(rd1, 'report.json'));
+    check('verify: verificador PASS → exit 0', v1.code === 0, v1.all.slice(-400));
+    check('verify: report.md + report.json con verdict PASS y gates', (() => {
+      const md = fs.readFileSync(path.join(rd1, 'report.md'), 'utf8');
+      return rep1.verdict === 'PASS' && rep1.exitCode === 0 && rep1.gates.ok
+        && rep1.gates.results.every((g) => g.passed) && /veredicto/.test(md);
+    })(), v1.all.slice(-300));
+    check('verify: el diff cubre base...HEAD + cambios sin commitear', (() => {
+      const d = fs.readFileSync(path.join(rd1, 'diff.patch'), 'utf8');
+      return d.includes('module.exports = 2') && d.includes('editado por el autor');
+    })());
+
+    // b) veredicto FAIL → exit 1 + findings
+    const v2 = runVerify({ FAKE_PI_VERDICT: 'FAIL' });
+    const rep2 = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('verify: verificador FAIL → exit 1 con findings',
+      v2.code === 1 && rep2.verdict === 'FAIL' && rep2.exitCode === 1 && rep2.findings.length >= 1,
+      v2.all.slice(-400));
+
+    // c) violación D2: modifica producto + crea foo.ts (se revierten), conserva zz-qa-* , el
+    //    trabajo previo del autor NO se toca → exit 2
+    const v3 = runVerify({ FAKE_PI_MUTATE: 'clean.js,foo.ts,zz-qa-bar.test.ts' });
+    const rep3 = readJson(path.join(lastRun('qa'), 'report.json'));
+    const st3 = git(['status', '--porcelain'], ext).out;
+    check('verify: violación de permisos → exit 2', v3.code === 2 && rep3.exitCode === 2, v3.all.slice(-500));
+    check('D2: el archivo del producto queda revertido y foo.ts borrado',
+      fs.readFileSync(path.join(ext, 'clean.js'), 'utf8').replace(/\r\n/g, '\n') === 'module.exports = "clean";\n'
+      && !fs.existsSync(path.join(ext, 'foo.ts'))
+      && !st3.includes('clean.js') && !st3.includes('foo.ts'), st3);
+    check('D2: zz-qa-bar.test.ts se conserva', fs.existsSync(path.join(ext, 'zz-qa-bar.test.ts'))
+      && rep3.kept.join(',').includes('zz-qa-bar.test.ts'), JSON.stringify(rep3.kept));
+    check('D2: lo que el autor ya había modificado antes no se toca',
+      fs.readFileSync(path.join(ext, 'README.md'), 'utf8') === '# externo (editado por el autor)\n'
+      && git(['diff', '--name-only'], ext).out.includes('README.md'), st3);
+    check('D2: el reporte lista las violaciones',
+      rep3.violations.some((v) => v.path === 'clean.js') && rep3.violations.some((v) => v.path === 'foo.ts'),
+      JSON.stringify(rep3.violations));
+
+    // c2) violación D2: verifier hace `git add` a un archivo nuevo → se revierte correctamente
+    const v3b = runVerify({ FAKE_PI_MUTATE: 'new-added.ts' });
+    const rep3b = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier git add foo.ts → unstage + delete, exit 2',
+      v3b.code === 2 && rep3b.exitCode === 2 && !fs.existsSync(path.join(ext, 'new-added.ts'))
+      && rep3b.violations.some((v) => v.path === 'new-added.ts'),
+      v3b.all.slice(-500));
+
+    // c3) violación D2: verifier crea archivo con nombre no-ASCII → se revierte
+    const v3c = runVerify({ FAKE_PI_MUTATE: 'café.ts' });
+    const rep3c = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier crea café.ts → se borra, exit 2',
+      v3c.code === 2 && rep3c.exitCode === 2 && !fs.existsSync(path.join(ext, 'café.ts'))
+      && rep3c.violations.some((v) => v.path === 'café.ts'),
+      v3c.all.slice(-500));
+
+    // c4) violación D2: verifier modifica archivo limpio + crea archivo nuevo, después commitea
+    //     → HEAD se resetea, los cambios quedan modificados, se restauran como violaciones
+    const v3d = runVerify({ FAKE_PI_MUTATE: 'clean.js,verifier-new.ts', FAKE_PI_COMMIT: '1' });
+    const rep3d = readJson(path.join(lastRun('qa'), 'report.json'));
+    const cleanAfter = fs.readFileSync(path.join(ext, 'clean.js'), 'utf8').replace(/\r\n/g, '\n');
+    const hasCommitViolation = rep3d.violations.some((v) => v.action === 'reset-soft-por-commit-del-verificador');
+    const hasCleanViolation = rep3d.violations.some((v) => v.path === 'clean.js');  // git-checkout
+    const hasNewViolation = rep3d.violations.some((v) => v.path === 'verifier-new.ts' && v.action === 'borrado');
+    check('D2: verifier commit (modifica limpio + crea nuevo) → HEAD reset, cambios restaurados, exit 2',
+      v3d.code === 2 && rep3d.exitCode === 2 && cleanAfter === 'module.exports = "clean";\n'
+      && !fs.existsSync(path.join(ext, 'verifier-new.ts'))
+      && hasCommitViolation && hasCleanViolation && hasNewViolation,
+      v3d.all.slice(-500));
+
+    // c5) violación D2: verifier modifica archivo que el autor ya había modificado → se restaura al estado del autor
+    const v3e = runVerify({ FAKE_PI_MUTATE: 'README.md' });
+    const rep3e = readJson(path.join(lastRun('qa'), 'report.json'));
+    const readmeAfter = fs.readFileSync(path.join(ext, 'README.md'), 'utf8');
+    check('D2: verifier modifica README.md (modificado por autor) → restaurado al estado del autor, exit 2',
+      v3e.code === 2 && rep3e.exitCode === 2
+      && readmeAfter === '# externo (editado por el autor)\n'
+      && rep3e.violations.some((v) => v.path === 'README.md' && v.action === 'restaurado-al-estado-del-autor'),
+      v3e.all.slice(-500));
+
+    // c6) violación D2: verifier hace `git mv` de un archivo limpio → original restaurado con su contenido,
+    //     el nombre nuevo borrado, índice limpio para ambos, violación reportada, exit 2.
+    const v3g = runVerify({ FAKE_PI_GITMV: 'clean.js:renamed.js' });
+    const rep3g = readJson(path.join(lastRun('qa'), 'report.json'));
+    const mvStatus = git(['status', '--porcelain', '--', 'clean.js', 'renamed.js'], ext).out.trim();
+    check('D2: verifier git mv de archivo limpio → original restaurado, nuevo borrado, índice limpio, exit 2',
+      v3g.code === 2 && rep3g.exitCode === 2
+      && fs.existsSync(path.join(ext, 'clean.js'))
+      && fs.readFileSync(path.join(ext, 'clean.js'), 'utf8').replace(/\r\n/g, '\n') === 'module.exports = "clean";\n'
+      && !fs.existsSync(path.join(ext, 'renamed.js'))
+      && !mvStatus
+      && rep3g.violations.some((v) => v.path === 'clean.js'),
+      `${JSON.stringify(rep3g.violations)} status=${JSON.stringify(mvStatus)} ${v3g.all.slice(-300)}`);
+
+    // c6a) `git mv` de un archivo LIMPIO cuyo nombre empieza con dos mayúsculas (NOTES.md): en -z el token de
+    //      la ruta original no lleva estado, así que no se puede adivinar por la forma del nombre.
+    fs.writeFileSync(path.join(ext, 'NOTES.md'), 'notas\n');
+    git(['add', 'NOTES.md'], ext); git(['commit', '-qm', 'notas'], ext);
+    const v3n = runVerify({ FAKE_PI_GITMV: 'NOTES.md:notes2.md' });
+    const rep3n = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier git mv de NOTES.md (limpio, nombre en mayúsculas) → restaurado, exit 2',
+      v3n.code === 2 && fs.existsSync(path.join(ext, 'NOTES.md')) && !fs.existsSync(path.join(ext, 'notes2.md'))
+      && !git(['status', '--porcelain', '--', 'NOTES.md', 'notes2.md'], ext).out.trim()
+      && rep3n.violations.some((v) => v.path === 'NOTES.md'),
+      `${JSON.stringify(rep3n.violations)} ${v3n.all.slice(-300)}`);
+
+    // c6c) índice envenenado: el verifier escribe basura, `git add`, y restaura los bytes del autor en README.md.
+    //      El contenido del worktree no cambia, pero el índice sí → violación '<index>', índice como antes, exit 2.
+    const cachedBefore = git(['diff', '--cached', '--name-only'], ext).out.trim();
+    const v3i = runVerify({ FAKE_PI_INDEXPOISON: 'README.md' });
+    const rep3i = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: índice envenenado (git add + restaurar bytes) → índice restaurado, violación <index>, exit 2',
+      v3i.code === 2 && rep3i.violations.some((v) => v.path === '<index>')
+      && git(['diff', '--cached', '--name-only'], ext).out.trim() === cachedBefore
+      && !git(['show', ':README.md'], ext).out.includes('malicioso')
+      && fs.readFileSync(path.join(ext, 'README.md'), 'utf8').replace(/\r\n/g, '\n') === '# externo (editado por el autor)\n',
+      `${JSON.stringify(rep3i.violations)} cached=${git(['diff', '--cached', '--name-only'], ext).out} ${v3i.all.slice(-300)}`);
+
+    // c6d) `git add -A` sin tocar bytes: el trabajo del autor no queda staged al terminar.
+    const v3j = runVerify({ FAKE_PI_ADDALL: '1' });
+    const rep3j = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: git add -A del verifier → índice restaurado (nada del autor queda staged), exit 2',
+      v3j.code === 2 && rep3j.violations.some((v) => v.path === '<index>')
+      && git(['diff', '--cached', '--name-only'], ext).out.trim() === cachedBefore,
+      `${JSON.stringify(rep3j.violations)} ${v3j.all.slice(-300)}`);
+
+    // c6e) el verifier cambia de rama (`git checkout main`) y commitea ahí: la rama vuelve a ser la del autor,
+    //      `main` no se mueve, el worktree queda con el contenido del autor; violación <HEAD>, exit 2.
+    const mainBefore = git(['rev-parse', 'main'], ext).out.trim();
+    const autorBefore = git(['rev-parse', 'autor'], ext).out.trim();
+    const v3k = runVerify({ FAKE_PI_CHECKOUT: 'main', FAKE_PI_MUTATE: 'clean.js', FAKE_PI_COMMIT: '1' });
+    const rep3k = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier hace checkout de otra rama y commitea → rama del autor, main intacta, contenido del autor, exit 2',
+      v3k.code === 2
+      && git(['symbolic-ref', 'HEAD'], ext).out.trim() === 'refs/heads/autor'
+      && git(['rev-parse', 'main'], ext).out.trim() === mainBefore
+      && git(['rev-parse', 'autor'], ext).out.trim() === autorBefore
+      && fs.readFileSync(path.join(ext, 'product.js'), 'utf8').replace(/\r\n/g, '\n') === 'module.exports = 2;\n'
+      && fs.readFileSync(path.join(ext, 'clean.js'), 'utf8').replace(/\r\n/g, '\n') === 'module.exports = "clean";\n'
+      && fs.readFileSync(path.join(ext, 'README.md'), 'utf8').replace(/\r\n/g, '\n') === '# externo (editado por el autor)\n'
+      && rep3k.violations.some((v) => v.path === '<HEAD>'),
+      `${JSON.stringify(rep3k.violations)} head=${git(['symbolic-ref', 'HEAD'], ext).out} ${v3k.all.slice(-300)}`);
+
+    // c6f) un archivo de scratch que ya existía (no lo creó este verifier) no se puede modificar.
+    fs.mkdirSync(path.join(ext, '.orchestra', 'scratch'), { recursive: true });
+    fs.writeFileSync(path.join(ext, '.orchestra', 'scratch', 'previo.txt'), 'de antes\n');
+    const v3l = runVerify({ FAKE_PI_MUTATE: '.orchestra/scratch/previo.txt' });
+    const rep3l = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: scratch pre-existente modificado por el verifier → violación, restaurado, exit 2',
+      v3l.code === 2 && rep3l.violations.some((v) => v.path === '.orchestra/scratch/previo.txt')
+      && fs.readFileSync(path.join(ext, '.orchestra', 'scratch', 'previo.txt'), 'utf8').replace(/\r\n/g, '\n') === 'de antes\n',
+      `${JSON.stringify(rep3l.violations)} ${v3l.all.slice(-300)}`);
+    fs.rmSync(path.join(ext, '.orchestra'), { recursive: true, force: true });
+
+    // c6b) `git mv` de un archivo con cambios del autor sin commitear → vuelve al contenido del AUTOR.
+    const v3h = runVerify({ FAKE_PI_GITMV: 'README.md:README2.md' });
+    const rep3h = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier git mv de archivo del autor → restaurado al contenido del autor, exit 2',
+      v3h.code === 2 && rep3h.exitCode === 2
+      && fs.existsSync(path.join(ext, 'README.md'))
+      && fs.readFileSync(path.join(ext, 'README.md'), 'utf8').replace(/\r\n/g, '\n') === '# externo (editado por el autor)\n'
+      && !fs.existsSync(path.join(ext, 'README2.md'))
+      && rep3h.violations.some((v) => v.path === 'README.md'),
+      `${JSON.stringify(rep3h.violations)} ${v3h.all.slice(-300)}`);
+
+    // c7) violación D2: verifier modifica zz-qa-*.test que YA EXISTÍA antes → violation (no permitido)
+    fs.writeFileSync(path.join(ext, 'zz-qa-pre-existing.test'), 'original qa file\n');
+    git(['add', '.'], ext); git(['commit', '-qm', 'pre-existing zz-qa'], ext);
+    const v3f = runVerify({ FAKE_PI_MUTATE: 'zz-qa-pre-existing.test' });
+    const rep3f = readJson(path.join(lastRun('qa'), 'report.json'));
+    const zqaAfter = fs.readFileSync(path.join(ext, 'zz-qa-pre-existing.test'), 'utf8').replace(/\r\n/g, '\n');
+    check('D2: verifier modifica zz-qa-*.test pre-existente → violation, restaurado, exit 2',
+      v3f.code === 2 && rep3f.exitCode === 2
+      && zqaAfter === 'original qa file\n'
+      && rep3f.violations.some((v) => v.path === 'zz-qa-pre-existing.test'),
+      v3f.all.slice(-500));
+
+    // d) provider-unavailable (402 del proveedor en el verifier) → exit 3
+    const v4 = runVerify({ FAKE_PI_ERROR: '402', FAKE_PI_ROLE: 'verifier' });
+    const rep4 = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('verify: provider-unavailable → exit 3',
+      v4.code === 3 && rep4.exitCode === 3 && !!rep4.providerUnavailable, v4.all.slice(-400));
+  }
+
+  // 12. D4: bookkeeping 'external' — un ciclo completo NO toca STATE.md ni tasks.json y el commit
+  //     de integración NO incluye archivos de .orchestra/.
+  {
+    const cfgE = readJson(cfgPath);
+    cfgE.bookkeeping = 'external';
+    fs.writeFileSync(cfgPath, JSON.stringify(cfgE, null, 2));
+    const stateBefore = fs.readFileSync(path.join(O, 'STATE.md'), 'utf8');
+    const tasksBefore = fs.readFileSync(path.join(O, 'tasks.json'), 'utf8');
+    const orderE = JSON.stringify({ id: 'bk-ext', goal: 'ciclo con bookkeeping external', targets: ['smoke'], scope: ['src/z.js'], acceptance: ['existe el cambio'] });
+    const rE = orchestra(['dispatch', '--order', orderE, '--commit', '--json'], tmp, { ...ENV, ORCHESTRA_PI_CLI: fakePi });
+    let jE = null; try { jE = JSON.parse(rE.out); } catch { /* noop */ }
+    check('bookkeeping external: ciclo completo integra (status ok)',
+      !!jE && jE.status === 'ok' && jE.results?.[0]?.integration?.ok === true, rE.all.slice(-500));
+    check('bookkeeping external: no toca STATE.md ni tasks.json',
+      fs.readFileSync(path.join(O, 'STATE.md'), 'utf8') === stateBefore
+      && fs.readFileSync(path.join(O, 'tasks.json'), 'utf8') === tasksBefore,
+      rE.all.slice(-300));
+    check('bookkeeping external: no corre el scribe',
+      !fs.existsSync(path.join(O, 'runs', 'bk-ext', 'scribe.json')));
+    const merged = git(['diff', '--name-only', 'HEAD^1', 'HEAD'], tmp).out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    check('bookkeeping external: el commit de integración excluye .orchestra/ e incluye el cambio',
+      merged.length > 0 && merged.some((f) => f.includes('fake-change')) && !merged.some((f) => f.startsWith('.orchestra/')),
+      merged.join(', '));
+
+    // 12b. orchestra reject NO toca tasks.json en modo external
+    const tasksBefore2 = fs.readFileSync(path.join(O, 'tasks.json'), 'utf8');
+    const rej = orchestra(['reject', '--task', 'bk-ext', '--reason', 'test', '--json'], tmp, { ...ENV, ORCHESTRA_PI_CLI: fakePi });
+    check('bookkeeping external: reject no crea tasks.json',
+      fs.readFileSync(path.join(O, 'tasks.json'), 'utf8') === tasksBefore2, rej.all.slice(-300));
+  }
+
   // 7. self-test del driver
   const st = orchestra(['--self-test'], tmp, ENV);
   check('--self-test pasa', st.code === 0, st.out.slice(-200));
@@ -340,6 +587,7 @@ try {
 } finally {
   // limpieza: worktree prune + borrar temporal
   git(['worktree', 'prune'], tmp);
+  if (ext) fs.rmSync(ext, { recursive: true, force: true });
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
