@@ -22,6 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { lsIndexEntries, restoreIndex } from '../lib/verify.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, '..', 'orchestra.mjs');
@@ -348,6 +349,8 @@ try {
     fs.writeFileSync(path.join(ext, 'product.js'), 'module.exports = 1;\n');
     fs.writeFileSync(path.join(ext, 'clean.js'), 'module.exports = "clean";\n');
     fs.writeFileSync(path.join(ext, 'README.md'), '# externo\n');
+    fs.mkdirSync(path.join(ext, 'sub'));
+    fs.writeFileSync(path.join(ext, 'sub', 'lib.js'), 'module.exports = "sub";\n');
     git(['add', '-A'], ext); git(['commit', '-qm', 'base'], ext);
     git(['branch', '-M', 'main'], ext);
     git(['checkout', '-qb', 'autor'], ext);
@@ -541,11 +544,99 @@ try {
       && rep3f.violations.some((v) => v.path === 'zz-qa-pre-existing.test'),
       v3f.all.slice(-500));
 
+    // c8) chmod del verifier sin tocar bytes: el MODO entra en el snapshot → violación y restauración
+    //     (sin esto el chmod quedaba invisible en hosts con core.filemode=false, p. ej. Windows).
+    fs.writeFileSync(path.join(ext, 'README.md'), '# externo (editado por el autor 2)\n');
+    const v3m = runVerify({ FAKE_PI_CHMOD: 'README.md' });
+    const rep3m = readJson(path.join(lastRun('qa'), 'report.json'));
+    const readmeM = fs.readFileSync(path.join(ext, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+    check('D2: chmod del verifier sobre archivo del autor → violación, restaurado (contenido y modo), exit 2',
+      v3m.code === 2 && rep3m.exitCode === 2
+      && rep3m.violations.some((v) => v.path === 'README.md')
+      && readmeM === '# externo (editado por el autor 2)\n'
+      && (fs.statSync(path.join(ext, 'README.md')).mode & 0o200) !== 0,
+      `${JSON.stringify(rep3m.violations)} mode=${(fs.statSync(path.join(ext, 'README.md')).mode & 0o777).toString(8)} ${v3m.all.slice(-300)}`);
+
+    // c9) symlink/hardlink del verifier sobre un archivo del autor: la restauración NO debe escribir
+    //     a través del link (el fichero externo queda intacto) y repone el archivo del autor.
+    const victima = path.join(tmp, 'victima-externa.txt');
+    fs.writeFileSync(victima, 'archivo externo intacto\n');
+    const v3s = runVerify({ FAKE_PI_LINK: 'README.md', FAKE_PI_LINK_TARGET: victima });
+    const rep3s = readJson(path.join(lastRun('qa'), 'report.json'));
+    const readmeS = fs.readFileSync(path.join(ext, 'README.md'), 'utf8').replace(/\r\n/g, '\n');
+    check('D2: verifier convierte archivo del autor en symlink/hardlink → violación, restaurado, víctima intacta, exit 2',
+      v3s.code === 2 && rep3s.exitCode === 2
+      && rep3s.violations.some((v) => v.path === 'README.md')
+      && readmeS === '# externo (editado por el autor 2)\n'
+      && !fs.lstatSync(path.join(ext, 'README.md')).isSymbolicLink()
+      && fs.readFileSync(victima, 'utf8') === 'archivo externo intacto\n',
+      `${JSON.stringify(rep3s.violations)} victima=${JSON.stringify(fs.readFileSync(victima, 'utf8'))} ${v3s.all.slice(-300)}`);
+
+    // c9b) mismo ataque sobre un archivo LIMPIO (trackeado): la rama `git checkout` también debe
+    //      sacar el link antes de reponer, sin escribir a través de él.
+    const victima2 = path.join(tmp, 'victima-externa-2.txt');
+    fs.writeFileSync(victima2, 'otro externo intacto\n');
+    const v3s2 = runVerify({ FAKE_PI_LINK: 'clean.js', FAKE_PI_LINK_TARGET: victima2 });
+    const rep3s2 = readJson(path.join(lastRun('qa'), 'report.json'));
+    const cleanS = fs.readFileSync(path.join(ext, 'clean.js'), 'utf8').replace(/\r\n/g, '\n');
+    check('D2: symlink/hardlink sobre archivo LIMPIO → checkout lo repone sin escribir a través, víctima intacta, exit 2',
+      v3s2.code === 2 && rep3s2.exitCode === 2
+      && rep3s2.violations.some((v) => v.path === 'clean.js')
+      && cleanS === 'module.exports = "clean";\n'
+      && !fs.lstatSync(path.join(ext, 'clean.js')).isSymbolicLink()
+      && fs.readFileSync(victima2, 'utf8') === 'otro externo intacto\n',
+      `${JSON.stringify(rep3s2.violations)} victima=${JSON.stringify(fs.readFileSync(victima2, 'utf8'))} ${v3s2.all.slice(-300)}`);
+
+    // c10) parent-dir link: el verifier reemplaza un DIRECTORIO del autor por un enlace a un
+    //      directorio externo. La restauración no debe escribir a través del enlace (ni borrar el
+    //      fichero externo): tiene que sacar el enlace y reponer el archivo del autor.
+    fs.writeFileSync(path.join(ext, 'sub', 'lib.js'), 'module.exports = "sub-autor";\n');  // sucio del autor
+    const victimaDir = path.join(tmp, 'victima-dir');
+    fs.mkdirSync(victimaDir, { recursive: true });
+    fs.writeFileSync(path.join(victimaDir, 'lib.js'), 'externo irremplazable\n');
+    const v9dir = runVerify({ FAKE_PI_LINKDIR: 'sub', FAKE_PI_LINKDIR_TARGET: victimaDir });
+    const rep9dir = readJson(path.join(lastRun('qa'), 'report.json'));
+    check('D2: verifier convierte un directorio PADRE en enlace → violación, repuesto, víctima intacta, exit 2',
+      v9dir.code === 2 && rep9dir.exitCode === 2
+      && rep9dir.violations.some((v) => v.path === 'sub/lib.js')
+      && fs.readFileSync(path.join(ext, 'sub', 'lib.js'), 'utf8').replace(/\r\n/g, '\n') === 'module.exports = "sub-autor";\n'
+      && !fs.lstatSync(path.join(ext, 'sub')).isSymbolicLink()
+      && fs.readFileSync(path.join(victimaDir, 'lib.js'), 'utf8') === 'externo irremplazable\n',
+      `${JSON.stringify(rep9dir.violations)} ext=${JSON.stringify(fs.readFileSync(path.join(victimaDir, 'lib.js'), 'utf8'))} ${v9dir.all.slice(-300)}`);
+
     // d) provider-unavailable (402 del proveedor en el verifier) → exit 3
     const v4 = runVerify({ FAKE_PI_ERROR: '402', FAKE_PI_ROLE: 'verifier' });
     const rep4 = readJson(path.join(lastRun('qa'), 'report.json'));
     check('verify: provider-unavailable → exit 3',
       v4.code === 3 && rep4.exitCode === 3 && !!rep4.providerUnavailable, v4.all.slice(-400));
+  }
+
+  // 11b) tabs en el path del índice (POSIX): NTFS prohíbe `\t` en nombres, así que el caso se prueba
+  //      sobre `restoreIndex`/`lsIndexEntries` en un repo temporal; en Windows queda cubierto por
+  //      `splitIndexEntry` en el self-test.
+  if (process.platform !== 'win32') {
+    const t2 = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-tab-'));
+    try {
+      git(['init', '-q'], t2);
+      git(['config', 'user.email', 'tab@smoke.local'], t2);
+      git(['config', 'user.name', 'tab-smoke'], t2);
+      const tabName = 'foo\tbar.ts';
+      fs.writeFileSync(path.join(t2, tabName), 'version del autor\n');
+      git(['add', '-A'], t2); git(['commit', '-qm', 'base'], t2);
+      const idxBefore = await lsIndexEntries(t2);
+      const key = [...idxBefore.keys()].find((k) => k.endsWith('\tbar.ts'));
+      // Envenenar el índice (contenido malicioso + git add) y restaurar los bytes del worktree.
+      fs.writeFileSync(path.join(t2, tabName), 'malicioso\n');
+      git(['add', '-A'], t2);
+      fs.writeFileSync(path.join(t2, tabName), 'version del autor\n');
+      restoreIndex(t2, idxBefore, await lsIndexEntries(t2));
+      const idxAfter = await lsIndexEntries(t2);
+      check('D2: restoreIndex repone un path con tab (no lo trunca)',
+        !!key && idxAfter.get(key) === idxBefore.get(key),
+        `before=${JSON.stringify([...idxBefore])} after=${JSON.stringify([...idxAfter])}`);
+    } finally {
+      fs.rmSync(t2, { recursive: true, force: true });
+    }
   }
 
   // 12. D4: bookkeeping 'external' — un ciclo completo NO toca STATE.md ni tasks.json y el commit
