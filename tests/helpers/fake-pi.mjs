@@ -77,6 +77,31 @@ if (failsHere && err === 'stall') {
       try { execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' }); } catch { /* noop */ }
     }
 
+    // FAKE_PI_CHMOD='a.md,b.sh': chmod 0o444 (read-only) sin tocar bytes → cambio de MODO del verifier.
+    for (const f of String(process.env.FAKE_PI_CHMOD || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+      try { fs.chmodSync(path.join(process.cwd(), f), 0o444); } catch { /* noop */ }
+    }
+
+    // FAKE_PI_LINK='a.md' + FAKE_PI_LINK_TARGET=<ruta externa>: reemplaza el archivo por un symlink
+    // (o hardlink si el host no permite symlinks) a un path externo. Prueba que la restauración no
+    // escribe A TRAVÉS del link.
+    if (process.env.FAKE_PI_LINK && process.env.FAKE_PI_LINK_TARGET) {
+      const p = path.join(process.cwd(), process.env.FAKE_PI_LINK);
+      try { fs.rmSync(p, { force: true }); } catch { /* noop */ }
+      try { fs.symlinkSync(process.env.FAKE_PI_LINK_TARGET, p); }
+      catch { try { fs.linkSync(process.env.FAKE_PI_LINK_TARGET, p); } catch { /* noop */ } }
+    }
+
+    // FAKE_PI_LINKDIR='sub' + FAKE_PI_LINKDIR_TARGET=<dir externo>: reemplaza un DIRECTORIO del
+    // worktree por un enlace al directorio externo. Prueba que la restauración no escribe A TRAVÉS
+    // del enlace del padre (no debe borrar/pisar el fichero externo).
+    if (process.env.FAKE_PI_LINKDIR && process.env.FAKE_PI_LINKDIR_TARGET) {
+      const p = path.join(process.cwd(), process.env.FAKE_PI_LINKDIR);
+      try { fs.rmSync(p, { recursive: true, force: true }); } catch { /* noop */ }
+      try { fs.symlinkSync(process.env.FAKE_PI_LINKDIR_TARGET, p, process.platform === 'win32' ? 'junction' : undefined); }
+      catch { /* noop */ }
+    }
+
     if (process.env.FAKE_PI_COMMIT) {
       try {
         execSync('git add -A', { cwd: process.cwd(), stdio: 'pipe' });
