@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lsIndexEntries, restoreIndex } from '../lib/verify.mjs';
+import { changedFiles, writeDiff } from '../lib/runner.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(HERE, '..', 'orchestra.mjs');
@@ -664,6 +665,30 @@ try {
         `before=${JSON.stringify([...idxBefore])} after=${JSON.stringify([...idxAfter])}`);
     } finally {
       fs.rmSync(t2, { recursive: true, force: true });
+    }
+  }
+
+  // 11d) cambios staged: un autor que hace `git add` no debe verse como "diff vacío".
+  {
+    const t3 = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-staged-'));
+    const patchFile = `${t3}.patch`;
+    try {
+      git(['init', '-q'], t3);
+      git(['config', 'user.email', 'staged@smoke.local'], t3);
+      git(['config', 'user.name', 'staged-smoke'], t3);
+      fs.writeFileSync(path.join(t3, 'base.txt'), 'base\n');
+      git(['add', '-A'], t3); git(['commit', '-qm', 'base'], t3);
+      fs.writeFileSync(path.join(t3, 'nuevo.test.ts'), 'test nuevo\n');
+      fs.writeFileSync(path.join(t3, 'base.txt'), 'base editado\n');
+      git(['add', '-A'], t3);
+      const changed = await changedFiles(t3);
+      const patch = await writeDiff(t3, patchFile);
+      check('changedFiles/writeDiff ven los cambios staged (no "diff vacío")',
+        changed.includes('nuevo.test.ts') && changed.includes('base.txt') && /nuevo\.test\.ts/.test(patch),
+        `changed=${JSON.stringify(changed)}`);
+    } finally {
+      fs.rmSync(t3, { recursive: true, force: true });
+      fs.rmSync(patchFile, { force: true });
     }
   }
 
