@@ -604,6 +604,34 @@ try {
       && fs.readFileSync(path.join(victimaDir, 'lib.js'), 'utf8') === 'externo irremplazable\n',
       `${JSON.stringify(rep9dir.violations)} ext=${JSON.stringify(fs.readFileSync(path.join(victimaDir, 'lib.js'), 'utf8'))} ${v9dir.all.slice(-300)}`);
 
+    // c11) `verify --order @archivo` con un ARRAY de una orden (formato de dispatch --orders):
+    //      antes llegaba el array crudo a normalizeWorkOrder y moría con id/goal vacíos.
+    //      OJO: id 'qaarr' (sin guión) para que `lastRun('qa')` no matchee este run por prefijo.
+    const orderArr = path.join(tmp, 'order-array.json');
+    fs.writeFileSync(orderArr, JSON.stringify([{ id: 'qaarr', goal: 'orden en array', targets: ['smoke'], scope: ['product.js'], acceptance: ['product.js exporta 2'] }]));
+    const vArr = orchestra(['verify', '--worktree', ext, '--order', `@${orderArr}`, '--json'], tmp, { ...ENV, ORCHESTRA_PI_CLI: fakePi });
+    const repArr = readJson(path.join(lastRun('qaarr'), 'report.json'));
+    check('verify: --order @archivo con array de 1 orden → la procesa (exit 0, id real)',
+      vArr.code === 0 && repArr.id === 'qaarr' && repArr.verdict === 'PASS', vArr.all.slice(-400));
+
+    // c12) worktree ATRÁS de main: el diff debe comparar contra merge-base(base, HEAD), no contra la
+    //      base directa (que traería los commits de main en reversa como borrados).
+    // Avanza main en un worktree aparte: no se toca el working tree (sucio) del autor.
+    const mainWt = path.join(os.tmpdir(), `orchestra-main-${process.pid}-${Date.now()}`);
+    git(['worktree', 'add', '-q', mainWt, 'main'], ext);
+    git(['config', 'user.email', 'verify@smoke.local'], mainWt);
+    git(['config', 'user.name', 'verify-smoke'], mainWt);
+    fs.writeFileSync(path.join(mainWt, 'main-only.js'), 'solo en main\n');
+    git(['add', 'main-only.js'], mainWt);
+    git(['commit', '-qm', 'main avanza'], mainWt);
+    git(['worktree', 'remove', '--force', mainWt], ext);
+    fs.rmSync(mainWt, { recursive: true, force: true });
+    const vMb = runVerify({});
+    const dMb = fs.readFileSync(path.join(lastRun('qa'), 'diff.patch'), 'utf8');
+    check('verify: el diff usa merge-base (un worktree atrás de main no trae los commits de main en reversa)',
+      vMb.code === 0 && dMb.includes('module.exports = 2') && !dMb.includes('solo en main'),
+      `code=${vMb.code} has2=${dMb.includes('module.exports = 2')} hasMain=${dMb.includes('solo en main')} head=${git(['rev-parse', '--abbrev-ref', 'HEAD'], ext).out.trim()} main=${git(['rev-parse', '--short', 'main'], ext).out.trim()} mb=${git(['merge-base', 'main', 'HEAD'], ext).out.trim()} ${vMb.all.slice(-200)}`);
+
     // d) provider-unavailable (402 del proveedor en el verifier) → exit 3
     const v4 = runVerify({ FAKE_PI_ERROR: '402', FAKE_PI_ROLE: 'verifier' });
     const rep4 = readJson(path.join(lastRun('qa'), 'report.json'));
@@ -637,6 +665,49 @@ try {
     } finally {
       fs.rmSync(t2, { recursive: true, force: true });
     }
+  }
+
+  // 11c) baseline rojo (P00098): el resumen muestra el id real aunque el state no tenga `result`, y
+  //      `--fresh` re-despacha desde cero sin reanudar el state viejo.
+  {
+    const cfgPathR = path.join(O, 'config.json');
+    const cRed = readJson(cfgPathR);
+    const gatesBackup = cRed.gates;
+    cRed.gates = { ...cRed.gates, red: ['node -e "process.exit(1)"'] };
+    fs.writeFileSync(cfgPathR, JSON.stringify(cRed, null, 2));
+    const order = (id) => JSON.stringify({ id, title: 'baseline rojo', goal: 'x', targets: ['red'], scope: ['src/r.js'], acceptance: ['nada'] });
+    const env = { ...ENV, ORCHESTRA_PI_CLI: fakePi };
+    const stRed = path.join(O, 'runs', 'qa-rojo', 'state.json');
+
+    // 1) un run humano: el resumen debe traer el id real (antes salía `undefined`).
+    const rRed1 = orchestra(['dispatch', '--order', order('qa-rojo')], tmp, env);
+    const s1 = readJson(stRed);
+    check('baseline rojo: resumen con id real y needs-decision',
+      /qa-rojo\s+needs-decision/.test(rRed1.all) && s1.status === 'needs-decision' && s1.decision?.reason === 'gate-baseline-rojo',
+      rRed1.all.slice(-500));
+
+    // 2) en --json, results[0].id también es el real.
+    const rRed2 = orchestra(['dispatch', '--order', order('qa-rojo'), '--json'], tmp, env);
+    let jRed2 = null; try { jRed2 = JSON.parse(rRed2.out).results[0]; } catch { /* noop */ }
+    check('baseline rojo: --json results[0].id real', jRed2?.id === 'qa-rojo' && jRed2?.status === 'needs-decision', rRed2.out.slice(-300));
+
+    // 3) sin --fresh reanuda el state viejo (la marca sobrevive).
+    const stOld = readJson(stRed);
+    stOld.markerViejo = 'si';
+    fs.writeFileSync(stRed, JSON.stringify(stOld, null, 2));
+    const rResume = orchestra(['dispatch', '--order', order('qa-rojo'), '--json'], tmp, env);
+    let jResume = null; try { jResume = JSON.parse(rResume.out).results[0]; } catch { /* noop */ }
+    check('re-dispatch sin --fresh reanuda el state viejo (marca intacta)',
+      readJson(stRed).markerViejo === 'si' && jResume?.status === 'needs-decision', rResume.out.slice(-300));
+
+    // 4) con --fresh arranca de cero: la marca desaparece y se decide de nuevo.
+    const rFresh = orchestra(['dispatch', '--order', order('qa-rojo'), '--fresh', '--json'], tmp, env);
+    let jFresh = null; try { jFresh = JSON.parse(rFresh.out).results[0]; } catch { /* noop */ }
+    check('--fresh re-despacha desde cero (no reanuda el state viejo)',
+      readJson(stRed).markerViejo === undefined && jFresh?.id === 'qa-rojo' && jFresh?.status === 'needs-decision',
+      rFresh.all.slice(-500));
+
+    fs.writeFileSync(cfgPathR, JSON.stringify({ ...readJson(cfgPathR), gates: gatesBackup }, null, 2));
   }
 
   // 12. D4: bookkeeping 'external' — un ciclo completo NO toca STATE.md ni tasks.json y el commit
