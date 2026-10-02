@@ -84,8 +84,9 @@ async function main() {
   orchestra --clean [--force]       # limpia worktrees/ramas huérfanas (deslinkea junctions)
   orchestra scout [--query "..."] [--task <id>] [--json]
                                     # recon barato (no gasta tu contexto)
-  orchestra dispatch --order '<json>' [--order ...] [--workers N] [--commit] [--json]
+  orchestra dispatch --order '<json>' [--order ...] [--workers N] [--commit] [--fresh] [--json]
                                     # 1..N work orders en paralelo → resumen compacto
+                                    # --fresh: ignora el state.json previo (re-despacha desde cero)
   orchestra approve --task <id> [--commit] [--yes] [--message "..."]
   orchestra reject --task <id> [--reason "..."]
   orchestra status [--json]
@@ -97,7 +98,7 @@ async function main() {
 
 Flags: --plan --task <id> --all --commit --yes --dry-run --workers <n> --no-worktrees --verbose --self-test --keys-status --keys-check
        models [--apply] [--json] --stub  report [--json]  --clean [--force]
-       scout|dispatch|approve|reject|status|verify  --order <json> --orders <file> --decisions <json> --worktree <ruta> --base <ref>`);
+       scout|dispatch|approve|reject|status|verify  --order <json> --orders <file> --decisions <json> --worktree <ruta> --base <ref> --fresh --detach`);
     return;
   }
   // Antes de CUALQUIER trabajo: si hay un token que no reconozco, corto. El camino por defecto se

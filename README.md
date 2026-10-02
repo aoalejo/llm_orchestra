@@ -78,6 +78,7 @@ orchestra --task <id> --stub   # ciclo offline (sin red ni keys) para probar el 
 orchestra scout --query "dónde está el router de pagos" --json
 orchestra scout --provider socraticode --query "..."   # usa SocratiCode (MCP) si está
 orchestra dispatch --order '{"goal":"...","acceptance":["..."],"scope":["src/..."]}' --json
+orchestra dispatch --order @tarea.json --fresh # ignora el state.json previo y re-despacha de cero
 orchestra approve --task <id> --commit        # el chat aprueba e integra
 orchestra status --json                       # estado de tareas
 orchestra usage                               # % de cuota por cuenta
@@ -104,6 +105,10 @@ otro autor, p. ej. otro agente). No crea worktrees, no commitea, no mergea y no 
 orchestra verify --worktree /ruta/al/worktree --order '{"id":"qa","goal":"...","targets":["smoke"],"scope":["src/..."],"acceptance":["..."]}'
 orchestra verify --worktree <ruta> --order @orden.json --base main   # --base default: main
 ```
+
+`--order @archivo` también acepta un **array** de órdenes (formato de `dispatch --orders`): procesa
+la primera. El diff se calcula contra `git merge-base <base> HEAD` (no contra la base directa), así
+que un worktree que va **atrás** de `main` no arrastra los commits de `main` en reversa.
 
 Qué hace, en orden:
 
