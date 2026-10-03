@@ -54,7 +54,7 @@ Override total con `ORCHESTRA_AGENTS_DIR`.
    b. **Author**: corre con `workOrderText(task)` + mapa del scout. Suma costo.
    c. **Presupuesto**: si supera `budget.maxUsdPerTask`, `maxInputTokensPerTask` o `maxOutputTokensPerTask`, marca `blocked` y sale. Se chequea tras el autor y tras la verificación.
    d. **Gate determinista**: corre todos los comandos del `targets` (o todos si no hay). Si rojo → siguiente ciclo (sin gastar verifier LLM).
-   e. **Verify**: `git diff` → verifier adversario. Si `risk` alto y `doubleVerifyHighRisk`: 2º verifier + security-reviewer.
+   e. **Verify**: `git diff` → verifier adversario. Si `risk` alto y `doubleVerifyHighRisk`: 2º verifier + security-reviewer. Con `loop.doubleVerifyAlways` el 2º verifier (otro modelo) revisa siempre; con `verify.parallel: true` los verificadores corren a la vez (si no, en secuencia).
    f. **Anti-loop**: firma de findings (`file:line:problem`, sorted). Si se repite `repeatSignatureLimit` veces → devuelve `needs-decision` (`options: escalate|park|continue`) al chat. Con `--decisions '{"stall":"escalate"}'` se aplica y sigue.
    g. **Cuota**: si no hay key de worker → `needs-decision` (`options: use_orchestrator|use_fallback_models|pause`) con el costo acumulado, para que el chat decida. La cuenta A es **última instancia**.
    h. **Aprobación (modo chat)**: sin `--commit` el loop termina en `needs-approval` y devuelve el **resultado compacto** (verdict, findings, costo, diff); el chat aprueba con `orchestra approve`. Con `--commit`/`--yes` se auto-aprueba e integra.

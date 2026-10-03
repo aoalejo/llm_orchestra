@@ -108,6 +108,25 @@ try {
   check('reintenta la verificación tras un 400 del proveedor', /reintento con qwen3\.8-flash/.test(retry.all), retry.all.slice(-600));
   check('el reintento conserva el ciclo (t2 termina needs-approval)', readJson(path.join(O, 'runs', 't2', 'state.json')).status === 'needs-approval', retry.all.slice(-300));
 
+  // 2c. P00119: con verify.parallel + loop.doubleVerifyAlways, una tarea de riesgo medio pasa por dos
+  //     verificadores distintos a la vez (y sin seguridad, que sigue siendo sólo para riesgo alto).
+  const cfgPar = readJson(path.join(O, 'config.json'));
+  fs.writeFileSync(path.join(O, 'config.json'), JSON.stringify({
+    ...cfgPar, verify: { ...(cfgPar.verify || {}), parallel: true }, loop: { ...cfgPar.loop, doubleVerifyAlways: true },
+  }, null, 2));
+  fs.rmSync(path.join(O, 'runs', 't1'), { recursive: true, force: true });
+  const par = orchestra(['--task', 't1', '--stub', '--dry-run'], tmp, ENV);
+  const parLine = (par.all.match(/verificando en paralelo: ([^\n]*)/) || [])[1] || '';
+  const [pa, pb] = [/a=(\S+)/.exec(parLine)?.[1], /b=(\S+)/.exec(parLine)?.[1]];
+  check('verify.parallel: A y B a la vez con modelos distintos', pa && pb && pa !== pb && !/sec=/.test(parLine), par.all.slice(-600));
+  check('verify.parallel: dos veredictos y t1 needs-approval', (() => {
+    const runDir = path.join(O, 'runs', 't1');
+    const st = readJson(path.join(runDir, 'state.json'));
+    const vfile = fs.readdirSync(runDir).filter((d) => /^cycle-/.test(d)).map((d) => path.join(runDir, d, 'verdict.json')).find((p) => fs.existsSync(p));
+    return st.status === 'needs-approval' && vfile && readJson(vfile).length === 2;
+  })(), par.all.slice(-300) + ' runs=' + fs.readdirSync(path.join(O, 'runs', 't1')).join(','));
+  fs.writeFileSync(path.join(O, 'config.json'), JSON.stringify(cfgPar, null, 2));
+
   // 3. protegida sin --yes → no integra
   const prot = orchestra(['--task', 't3', '--stub', '--commit'], tmp, ENV);
   check('protegida sin --yes avisa', /ruta protegida/i.test(prot.all), prot.all.slice(-400));
