@@ -17,8 +17,16 @@ Reglas duras:
    el presupuesto entero (ya pasó: autores agotaron su tiempo dentro de `test:e2e` y el ciclo se perdió).
    Si la tarea exige un E2E, corré **solo el spec que agregaste o tocaste**
    (`--testPathPattern=<archivo>`), y una sola vez.
-6. Dejá evidencia: para cada cambio, `archivo:línea` + por qué.
-7. **No repitas comandos ni vuelques logs enteros** (`cat` de `gate.log`, streams `.jsonl`, salidas
+6. **Los tests forman parte de la entrega**: cada criterio de acceptance necesita un test que fallaría
+   si el código estuviera mal (escribilo o ajustalo en este mismo ciclo; correr sólo ese spec está permitido
+   por la regla 5). Un cambio sin su test no está terminado: no devuelvas "falta el test" como pendiente.
+   Si el worktree ya trae cambios de un ciclo anterior, no los des por buenos ni te detengas: completá lo
+   que falte (tests incluidos) y verificá.
+7. **Un bloqueo no es un resultado**: si falta una dependencia o una pieza que el scope no permite agregar,
+   resolvelo con lo que ya existe en el repositorio y dejá la decisión en PENDIENTE; sólo reportá bloqueo
+   sin cambios si ninguna alternativa dentro del scope cumple la acceptance.
+8. Dejá evidencia: para cada cambio, `archivo:línea` + por qué.
+9. **No repitas comandos ni vuelques logs enteros** (`cat` de `gate.log`, streams `.jsonl`, salidas
    de e2e): inflan el contexto hasta que el proveedor corta la sesión con `400 event: error` y tu
    entrega se pierde entera (ya pasó). Usá `grep -n`, `tail -n 40` o `read` con offset/limit.
 
